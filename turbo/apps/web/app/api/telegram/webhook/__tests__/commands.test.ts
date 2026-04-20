@@ -17,7 +17,7 @@ import {
 import { mockClerk } from "../../../../../src/__tests__/clerk-mock";
 import { server } from "../../../../../src/mocks/server";
 import { http } from "../../../../../src/__tests__/msw";
-import { POST } from "../[installationId]/route";
+import { POST } from "../[telegramBotId]/route";
 import { seedTestRun } from "../../../../../src/__tests__/db-test-seeders/runs";
 
 const context = testContext();
@@ -124,7 +124,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -148,7 +148,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -172,7 +172,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -196,7 +196,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -223,7 +223,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -254,7 +254,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -278,7 +278,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -304,7 +304,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -335,7 +335,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -361,7 +361,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -389,7 +389,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -425,7 +425,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -458,7 +458,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -482,7 +482,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -522,7 +522,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();
@@ -552,7 +552,7 @@ describe("Telegram bot commands", () => {
       });
 
       const response = await POST(request, {
-        params: Promise.resolve({ installationId }),
+        params: Promise.resolve({ telegramBotId: installationId }),
       });
       expect(response.status).toBe(200);
       await context.mocks.flushAfter();

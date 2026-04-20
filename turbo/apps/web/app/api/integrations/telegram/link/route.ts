@@ -120,7 +120,7 @@ export async function GET(request: Request) {
   if (botId) {
     const [installation] = await globalThis.services.db
       .select({
-        id: telegramInstallations.id,
+        telegramBotId: telegramInstallations.telegramBotId,
         botUsername: telegramInstallations.botUsername,
       })
       .from(telegramInstallations)
@@ -131,7 +131,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         linked: false,
         installation: {
-          id: installation.id,
+          id: installation.telegramBotId,
           botUsername: installation.botUsername,
         },
       });
@@ -180,13 +180,13 @@ export async function POST(request: Request) {
   // Look up installation
   const [installation] = await globalThis.services.db
     .select({
-      id: telegramInstallations.id,
+      telegramBotId: telegramInstallations.telegramBotId,
       botUsername: telegramInstallations.botUsername,
       encryptedBotToken: telegramInstallations.encryptedBotToken,
       defaultComposeId: telegramInstallations.defaultComposeId,
     })
     .from(telegramInstallations)
-    .where(eq(telegramInstallations.id, body.installationId))
+    .where(eq(telegramInstallations.telegramBotId, body.installationId))
     .limit(1);
 
   if (!installation) {
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
       .insert(telegramUserLinks)
       .values({
         telegramUserId,
-        installationId: installation.id,
+        installationId: installation.telegramBotId,
         vm0UserId: userId,
       })
       .onConflictDoUpdate({
@@ -273,7 +273,7 @@ export async function POST(request: Request) {
       .insert(telegramUserLinks)
       .values({
         telegramUserId,
-        installationId: installation.id,
+        installationId: installation.telegramBotId,
         vm0UserId: userId,
       })
       .onConflictDoUpdate({
