@@ -62,6 +62,7 @@
         "src/__tests__/setup.ts",
         "__tests__/proxy.legal-pages.test.ts",
         "__tests__/proxy.locale-guard.test.ts",
+        "__tests__/proxy.middleware-cors.test.ts",
         "__tests__/proxy.sandbox-token.test.ts",
         "app/api/webhooks/clerk/__tests__/route.test.ts",
         "app/api/webhooks/stripe/__tests__/route.test.ts",

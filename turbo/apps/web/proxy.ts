@@ -154,7 +154,15 @@ export default async function middleware(
   // read cross-origin authenticated responses. Preflight is handled above,
   // so only Allow-Origin and Allow-Credentials are needed for actual
   // requests. `handleCors` performs origin-allowlist validation.
-  if (isApiRoute && response) {
+  //
+  // Guard: only set the header if Clerk (or any inner layer) hasn't already
+  // set it. This avoids overwriting CORS headers that downstream handlers
+  // may have attached (e.g. from Clerk-generated redirects).
+  if (
+    isApiRoute &&
+    response &&
+    !response.headers.get("Access-Control-Allow-Origin")
+  ) {
     const allowOrigin = handleCors(request).headers.get(
       "Access-Control-Allow-Origin",
     );

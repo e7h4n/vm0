@@ -853,6 +853,29 @@ interface CreditBreakdownSegment {
 }
 
 /**
+ * Per-process dedup for credit-breakdown warnings. `getBillingStatus` is
+ * called by the polled Usage tab, so raw `log.warn` on ledger drift
+ * produces a steady stream. We emit at most one warning per (orgId, kind)
+ * for the process lifetime — operators still get signal, the log stream
+ * stays clean.
+ */
+const warnedCreditBreakdown = new Set<string>();
+function warnCreditBreakdownOnce(
+  kind: "untracked_balance" | "unmatched_tier_amount",
+  orgId: string,
+  payload: Record<string, unknown>,
+): void {
+  const key = `${orgId}:${kind}`;
+  if (warnedCreditBreakdown.has(key)) return;
+  warnedCreditBreakdown.add(key);
+  const message =
+    kind === "untracked_balance"
+      ? "credit breakdown has untracked balance"
+      : "subscription_renewal amount does not match any tier";
+  log.warn(message, payload);
+}
+
+/**
  * Build the Usage-tab credit breakdown from active expires records.
  *
  * - `subscription_renewal` → "<Tier> plan" under category `plan`, tier derived
@@ -864,10 +887,20 @@ interface CreditBreakdownSegment {
  * - `one_time_purchase` → "Promotional".
  * - `auto_recharge` → "Pay as you go" (sentinel record from #10668).
  *
+ * Segment merge policy: records are deduped by `category:tier`, so two
+ * plan records of the same tier (e.g. two unexpired Pro renewals) collapse
+ * into a single "Pro plan" segment, while a Team + Pro combo renders as
+ * two distinct segments. This keeps the bar chart readable during a
+ * leftover-credits transition but hides the per-invoice breakdown — if
+ * per-renewal granularity is ever needed, switch the dedup key to include
+ * `stripeInvoiceId`.
+ *
  * Legacy balance not backed by any active record (pre-sentinel top-ups,
  * ledger drift) is surfaced as "Pay as you go" for paid tiers or "Free plan"
  * for free, so the segments always sum to `displayedCredits`. When a non-zero
- * untracked delta is observed we emit a `logger.warn` so ops can track drift.
+ * untracked delta is observed we emit a `logger.warn` so ops can track drift;
+ * warnings are deduped once per (orgId, kind) for the process lifetime so
+ * the polled Usage tab doesn't produce a log storm.
  */
 function buildCreditBreakdown(args: {
   orgId: string;
@@ -906,7 +939,7 @@ function buildCreditBreakdown(args: {
     if (r.source === "subscription_renewal") {
       const planTier = planTierFromAmount(r.amount);
       if (!planTier) {
-        log.warn("subscription_renewal amount does not match any tier", {
+        warnCreditBreakdownOnce("unmatched_tier_amount", orgId, {
           orgId,
           amount: r.amount,
           remaining: r.remaining,
@@ -946,7 +979,7 @@ function buildCreditBreakdown(args: {
 
   const untracked = Math.max(displayedCredits - trackedTotal, 0);
   if (untracked > 0) {
-    log.warn("credit breakdown has untracked balance", {
+    warnCreditBreakdownOnce("untracked_balance", orgId, {
       orgId,
       tier,
       displayedCredits,
