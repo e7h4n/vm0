@@ -26,4 +26,10 @@ describe("connector/providers/onyx", () => {
       }).rejects.toThrow("Onyx does not support OAuth");
     });
   });
+
+  describe("getSecretName", () => {
+    it("returns ONYX_TOKEN", () => {
+      expect(onyxHandler.getSecretName()).toBe("ONYX_TOKEN");
+    });
+  });
 });
