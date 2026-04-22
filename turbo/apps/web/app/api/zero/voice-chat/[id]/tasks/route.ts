@@ -130,7 +130,7 @@ export async function POST(
   }
 
   const agentSystemPrompt = await resolveAgentSystemPrompt(session.agentId);
-  const appendSystemPrompt = agentSystemPrompt.trim();
+  const appendSystemPrompt = (agentSystemPrompt ?? "").trim();
 
   const task = await createVoiceChatTask({
     sessionId: id,

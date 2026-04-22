@@ -72,15 +72,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true });
   }
 
-  const { taskStatus, defaultError } = mapRunStatus(status);
-  const resultText =
-    taskStatus === "done"
-      ? await getRunOutputText(runId).catch((err: unknown) => {
-          log.warn("Failed to extract run output text", { runId, err });
-          return undefined;
-        })
-      : undefined;
-  const errorText = taskStatus === "failed" ? (error ?? defaultError) : null;
+  const mapped = mapRunStatus(status);
+  let taskStatus = mapped.taskStatus;
+  let resultText: string | undefined;
+  let errorText: string | null =
+    taskStatus === "failed" ? (error ?? mapped.defaultError) : null;
+
+  if (taskStatus === "done") {
+    try {
+      resultText = await getRunOutputText(runId);
+    } catch (err) {
+      // Extraction failure is terminal — surface it to the user rather than
+      // marking the task `done` with an empty result (which would look like a
+      // silent success). See bad-smell.md#3 for the anti-pattern being avoided.
+      log.warn("Failed to extract run output text", { runId, err });
+      taskStatus = "failed";
+      errorText = "Failed to extract run output";
+    }
+  }
 
   const completed = await completeVoiceChatTask({
     taskId: payload.taskId,

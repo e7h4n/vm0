@@ -20,6 +20,16 @@ export {
   insertTestVoiceChatSession,
 } from "../db-test-seeders/users";
 export { insertTestVoiceChatCandidateSession } from "../db-test-seeders/voice-chat-candidate";
+export {
+  seedTestVoiceChatTask,
+  attachTestVoiceChatTaskRun,
+  markTestVoiceChatSessionEnded,
+  markTestVoiceChatSessionActive,
+  attachTestVoiceChatSessionRun,
+  seedTestVoiceChatSessionRow,
+  backDateTestVoiceChatTask,
+  seedTestVoiceChatTaskEvent,
+} from "../db-test-seeders/voice-chat";
 
 // Re-exports: read-only assertions
 export {
@@ -34,6 +44,15 @@ export {
   countTestVoiceChatCandidateSessionsByStatus,
   countTestVoiceChatCandidateSessionsByReasoningStatus,
 } from "../db-test-assertions/voice-chat-candidate";
+export {
+  getTestVoiceChatTask,
+  listTestVoiceChatTasks,
+  getTestVoiceChatTaskInSession,
+  getTestVoiceChatSession,
+  getTestAgentRunStatus,
+  listTestVoiceChatEventsByType,
+  listTestVoiceChatEventsForSession,
+} from "../db-test-assertions/voice-chat";
 
 /**
  * Get a VM0 API key from the pool for a vendor.

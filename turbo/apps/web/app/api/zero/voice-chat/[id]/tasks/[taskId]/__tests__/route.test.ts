@@ -5,14 +5,13 @@ import {
   createTestOrg,
   createTestCompose,
   insertTestVoiceChatSession,
+  seedTestVoiceChatTask,
 } from "../../../../../../../../src/__tests__/api-test-helpers";
 import {
   testContext,
   uniqueId,
 } from "../../../../../../../../src/__tests__/test-helpers";
 import { mockClerk } from "../../../../../../../../src/__tests__/clerk-mock";
-// eslint-disable-next-line web/no-direct-db-in-tests -- Service-level exception: seed a task row without dispatching a zero run (no API for that)
-import { createVoiceChatTask } from "../../../../../../../../src/lib/zero/voice-chat/task-service";
 
 vi.mock("@vm0/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vm0/core")>();
@@ -88,7 +87,7 @@ describe("GET /api/zero/voice-chat/[id]/tasks/[taskId]", () => {
       userId: other.userId,
       agentId: agent.composeId,
     });
-    const task = await createVoiceChatTask({
+    const task = await seedTestVoiceChatTask({
       sessionId: otherSessionId,
       prompt: "other",
     });
@@ -111,7 +110,7 @@ describe("GET /api/zero/voice-chat/[id]/tasks/[taskId]", () => {
       userId,
       agentId: agent.composeId,
     });
-    const taskOnOther = await createVoiceChatTask({
+    const taskOnOther = await seedTestVoiceChatTask({
       sessionId: otherSessionId,
       prompt: "other",
     });
@@ -127,7 +126,7 @@ describe("GET /api/zero/voice-chat/[id]/tasks/[taskId]", () => {
       userId,
       agentId: agent.composeId,
     });
-    const task = await createVoiceChatTask({
+    const task = await seedTestVoiceChatTask({
       sessionId,
       prompt: "look up",
     });

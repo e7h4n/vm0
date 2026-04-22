@@ -1,39 +1,28 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { eq } from "drizzle-orm";
 import {
   testContext,
   uniqueId,
 } from "../../../../../../src/__tests__/test-helpers";
 import {
+  attachTestVoiceChatTaskRun,
   createTestCallback,
   createSignedCallbackRequest,
+  getTestVoiceChatTask,
+  insertTestVoiceChatSession,
+  listTestVoiceChatEventsForSession,
+  markTestVoiceChatSessionEnded,
+  seedTestVoiceChatTask,
 } from "../../../../../../src/__tests__/api-test-helpers";
 import { seedTestCompose } from "../../../../../../src/__tests__/db-test-seeders/agents";
 import { seedTestRun } from "../../../../../../src/__tests__/db-test-seeders/runs";
 import { mockAblyPublish } from "../../../../../../src/__tests__/ably-mock";
-import { initServices } from "../../../../../../src/lib/init-services";
-/* eslint-disable web/no-direct-db-in-tests -- Service-level exception: assert callback DB side effects on tasks/events */
-import {
-  voiceChatSessions,
-  voiceChatTasks,
-  voiceChatEvents,
-} from "../../../../../../src/db/schema/voice-chat";
-/* eslint-enable web/no-direct-db-in-tests */
-/* eslint-disable web/no-direct-db-in-tests -- Service-level exception: no API surface creates a task row with a pre-assigned runId for callback setup */
-import {
-  attachTaskRun,
-  createVoiceChatTask,
-} from "../../../../../../src/lib/zero/voice-chat/task-service";
-/* eslint-enable web/no-direct-db-in-tests */
 
 const { POST } = await import("../route");
 
 const context = testContext();
 const CALLBACK_URL = "http://localhost/api/internal/callbacks/voice-chat-task";
 
-async function setupTaskWithCallback(options?: {
-  runStatus?: string;
-}): Promise<{
+async function setupTaskWithCallback(): Promise<{
   userId: string;
   orgId: string;
   sessionId: string;
@@ -41,8 +30,6 @@ async function setupTaskWithCallback(options?: {
   runId: string;
   secret: string;
 }> {
-  // eslint-disable-next-line web/no-direct-db-in-tests -- Service-level exception: helper seeds a task row with a pre-assigned runId for callback setup
-  initServices();
   const { userId, orgId } = await context.setupUser();
   const { composeId } = await seedTestCompose({
     userId,
@@ -50,30 +37,25 @@ async function setupTaskWithCallback(options?: {
     name: uniqueId("vc-task-cb"),
   });
 
-  /* eslint-disable web/no-direct-db-in-tests -- Service-level exception: no API route creates voice-chat sessions in active state */
-  const [session] = await globalThis.services.db
-    .insert(voiceChatSessions)
-    .values({
-      orgId,
-      userId,
-      agentId: composeId,
-      status: "active",
-    })
-    .returning();
-  /* eslint-enable web/no-direct-db-in-tests */
+  const sessionId = await insertTestVoiceChatSession({
+    orgId,
+    userId,
+    agentId: composeId,
+    status: "active",
+  });
 
-  const task = await createVoiceChatTask({
-    sessionId: session!.id,
+  const task = await seedTestVoiceChatTask({
+    sessionId,
     prompt: "do a thing",
   });
 
   const { runId } = await seedTestRun(userId, composeId, {
-    status: options?.runStatus ?? "running",
+    status: "running",
     orgId,
     triggerSource: "voice-chat",
   });
 
-  await attachTaskRun({ taskId: task.id, runId });
+  await attachTestVoiceChatTaskRun({ taskId: task.id, runId });
 
   const { secret } = await createTestCallback({
     runId,
@@ -84,31 +66,11 @@ async function setupTaskWithCallback(options?: {
   return {
     userId,
     orgId,
-    sessionId: session!.id,
+    sessionId,
     taskId: task.id,
     runId,
     secret,
   };
-}
-
-async function readTask(id: string) {
-  /* eslint-disable web/no-direct-db-in-tests -- Service-level exception: assert terminal task state written by callback */
-  const [row] = await globalThis.services.db
-    .select()
-    .from(voiceChatTasks)
-    .where(eq(voiceChatTasks.id, id))
-    .limit(1);
-  /* eslint-enable web/no-direct-db-in-tests */
-  return row;
-}
-
-async function listEvents(sessionId: string) {
-  /* eslint-disable web/no-direct-db-in-tests -- Service-level exception: assert task-completed event written after session-end */
-  return globalThis.services.db
-    .select()
-    .from(voiceChatEvents)
-    .where(eq(voiceChatEvents.sessionId, sessionId));
-  /* eslint-enable web/no-direct-db-in-tests */
 }
 
 describe("POST /api/internal/callbacks/voice-chat-task", () => {
@@ -129,7 +91,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
 
     expect(response.status).toBe(200);
-    const row = await readTask(taskId);
+    const row = await getTestVoiceChatTask(taskId);
     expect(row!.status).toBe("queued");
     expect(row!.finishedAt).toBeNull();
   });
@@ -150,13 +112,13 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
     expect(response.status).toBe(200);
 
-    const row = await readTask(taskId);
+    const row = await getTestVoiceChatTask(taskId);
     expect(row!.status).toBe("done");
     expect(row!.result).toBe("final answer");
     expect(row!.error).toBeNull();
     expect(row!.finishedAt).not.toBeNull();
 
-    const events = await listEvents(sessionId);
+    const events = await listTestVoiceChatEventsForSession(sessionId);
     const completed = events.find((e) => {
       return e.type === "task-completed";
     });
@@ -185,7 +147,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
     expect(response.status).toBe(200);
 
-    const row = await readTask(taskId);
+    const row = await getTestVoiceChatTask(taskId);
     expect(row!.status).toBe("failed");
     expect(row!.error).toBe("runner crashed");
     expect(row!.result).toBeNull();
@@ -203,7 +165,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
     expect(response.status).toBe(200);
 
-    const row = await readTask(taskId);
+    const row = await getTestVoiceChatTask(taskId);
     expect(row!.status).toBe("failed");
     expect(row!.error).toBe("Run cancelled");
   });
@@ -220,7 +182,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
     expect(response.status).toBe(200);
 
-    const row = await readTask(taskId);
+    const row = await getTestVoiceChatTask(taskId);
     expect(row!.status).toBe("failed");
     expect(row!.error).toBe("Run timeout");
   });
@@ -228,12 +190,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
   it("writes the task-completed event even when the session has already ended", async () => {
     const { runId, taskId, sessionId, secret } = await setupTaskWithCallback();
 
-    /* eslint-disable web/no-direct-db-in-tests -- Service-level exception: simulate race where session ends before callback fires */
-    await globalThis.services.db
-      .update(voiceChatSessions)
-      .set({ status: "ended", endedAt: new Date() })
-      .where(eq(voiceChatSessions.id, sessionId));
-    /* eslint-enable web/no-direct-db-in-tests */
+    await markTestVoiceChatSessionEnded(sessionId);
 
     context.mocks.axiom.queryAxiom.mockResolvedValueOnce([
       { eventData: { result: "late result" } },
@@ -248,7 +205,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
     expect(response.status).toBe(200);
 
-    const events = await listEvents(sessionId);
+    const events = await listTestVoiceChatEventsForSession(sessionId);
     expect(
       events.find((e) => {
         return e.type === "task-completed";
@@ -269,7 +226,7 @@ describe("POST /api/internal/callbacks/voice-chat-task", () => {
     );
     expect(response.status).toBe(401);
 
-    const row = await readTask(taskId);
+    const row = await getTestVoiceChatTask(taskId);
     expect(row!.status).toBe("queued");
   });
 

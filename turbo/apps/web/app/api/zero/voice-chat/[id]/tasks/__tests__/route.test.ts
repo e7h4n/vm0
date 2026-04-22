@@ -6,6 +6,7 @@ import {
   createTestCompose,
   insertTestVoiceChatSession,
   getTestVoiceChatEvents,
+  backDateTestVoiceChatTask,
 } from "../../../../../../../src/__tests__/api-test-helpers";
 import {
   testContext,
@@ -230,13 +231,16 @@ describe("GET /api/zero/voice-chat/[id]/tasks (listTasks)", () => {
     });
 
     const first = await postTasks(sessionId, { prompt: "first" });
-    await new Promise((r) => {
-      setTimeout(r, 5);
-    });
+    const firstBody = await first.json();
+    // Back-date the first task so the two POSTs have a deterministic
+    // createdAt order even when Postgres `now()` returns the same value.
+    await backDateTestVoiceChatTask(
+      firstBody.task.id,
+      new Date(Date.now() - 1000),
+    );
     const second = await postTasks(sessionId, { prompt: "second" });
     await postTasks(otherSessionId, { prompt: "other" });
 
-    const firstBody = await first.json();
     const secondBody = await second.json();
 
     const response = await getTasks(sessionId);
