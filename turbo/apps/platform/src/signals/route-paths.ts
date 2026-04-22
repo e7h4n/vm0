@@ -12,7 +12,6 @@ export const ROUTES = {
   chat: "/chats/:threadId",
   schedules: "/schedules",
   scheduleDetail: "/schedules/:scheduleId",
-  queues: "/queues",
   works: "/works",
   ideas: "/ideas",
   connectors: "/connectors",
