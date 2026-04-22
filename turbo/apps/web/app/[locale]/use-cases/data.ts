@@ -157,6 +157,7 @@ const APOLLO: ConnectorRef = {
   id: "apollo",
   label: "Apollo",
   icon: "/assets/connectors/apollo.svg",
+  dark: true,
 };
 
 const INSTANTLY: ConnectorRef = {
