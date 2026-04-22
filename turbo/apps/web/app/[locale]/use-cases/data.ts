@@ -153,6 +153,18 @@ const PLAUSIBLE: ConnectorRef = {
   icon: "/assets/connectors/plausible.svg",
 };
 
+const APOLLO: ConnectorRef = {
+  id: "apollo",
+  label: "Apollo",
+  icon: "/assets/connectors/apollo.svg",
+};
+
+const INSTANTLY: ConnectorRef = {
+  id: "instantly",
+  label: "Instantly",
+  icon: "/assets/connectors/instantly.svg",
+};
+
 // ---------------------------------------------------------------------------
 // Full use cases
 // ---------------------------------------------------------------------------
@@ -1313,6 +1325,39 @@ export const USE_CASES: UseCase[] = [
     integrationCount: 4,
     tipCount: 3,
     promptVariantCount: 4,
+    slackPreviewCount: 2,
+  },
+
+  {
+    slug: "cold-outreach-pipeline",
+    color: "#d07a5c",
+    avatar: {
+      rotation: 3,
+      skin: 4,
+      hairStyle: 1,
+      hairColor: 3,
+      expression: 5,
+      intensity: "h",
+    },
+    roles: ["ops"],
+    capability: "multi-tool",
+    model: "Claude 4 Sonnet",
+    connectors: [APOLLO, INSTANTLY, SLACK],
+    integrations: [
+      { connector: APOLLO, required: true },
+      { connector: INSTANTLY, required: true },
+      { connector: SLACK, required: false },
+    ],
+    relatedSlugs: [
+      "kol-cold-outreach",
+      "competitor-audit",
+      "marketing-emails",
+    ],
+    stepCount: 3,
+    nextActionCount: 3,
+    integrationCount: 3,
+    tipCount: 3,
+    promptVariantCount: 3,
     slackPreviewCount: 2,
   },
 ];
