@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-// eslint-disable-next-line web/no-direct-db-in-tests -- Pure function test: algorithmic timezone boundary logic
-import { startOfDayInTz } from "../usage-insight-service";
+import { startOfDayInTz } from "../../../shared/time";
 
 describe("startOfDayInTz", () => {
   it("returns midnight UTC for a UTC afternoon time", () => {
