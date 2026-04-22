@@ -153,6 +153,12 @@ const PLAUSIBLE: ConnectorRef = {
   icon: "/assets/connectors/plausible.svg",
 };
 
+const GOOGLE_DRIVE: ConnectorRef = {
+  id: "google-drive",
+  label: "Google Drive",
+  icon: "/assets/connectors/google-drive.svg",
+};
+
 // ---------------------------------------------------------------------------
 // Full use cases
 // ---------------------------------------------------------------------------
@@ -1296,9 +1302,10 @@ export const USE_CASES: UseCase[] = [
     roles: ["product", "ops"],
     capability: "multi-tool",
     model: "Claude 4 Sonnet",
-    connectors: [SLACK, NOTION],
+    connectors: [SLACK, GOOGLE_DRIVE, NOTION],
     integrations: [
       { connector: SLACK, required: true },
+      { connector: GOOGLE_DRIVE, required: true },
       { connector: NOTION, required: false },
     ],
     relatedSlugs: [
@@ -1308,7 +1315,7 @@ export const USE_CASES: UseCase[] = [
     ],
     stepCount: 3,
     nextActionCount: 3,
-    integrationCount: 2,
+    integrationCount: 3,
     tipCount: 3,
     promptVariantCount: 3,
     slackPreviewCount: 2,
