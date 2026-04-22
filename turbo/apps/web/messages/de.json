@@ -3418,6 +3418,88 @@
           "Pflegen Sie eine Liste bekannter instabiler Tests und weisen Sie Zero an, sie von Alarmen auszunehmen. Das verhindert Alarmmüdigkeit.",
           "Kombinieren Sie mit auto-merge-releases für eine vollständige Release-Pipeline: merge-queue-monitor erkennt feststeckende PRs, auto-merge-releases liefert das Release, sobald die Queue frei ist."
         ]
+      },
+      "promo-video-from-recordings": {
+        "title": "Verwandeln Sie rohe Bildschirmaufnahmen in professionelle Promo-Videos",
+        "description": "Laden Sie stumme Bildschirmaufnahmen bei Zero hoch. Es schreibt das Narrationsskript, wählt Musik aus, fügt Übergänge hinzu und exportiert einen fertigen SaaS-Werbespot in 30–90 Sekunden.",
+        "timeSaved": "~2 Std. pro Video gespart",
+        "headings": {
+          "scenario": "Warum die Produktion von Promo-Videos aus Bildschirmaufnahmen so lange dauert",
+          "prompt": "So beauftragen Sie Zero mit der Produktion eines Promo-Videos aus Ihren Aufnahmen",
+          "steps": "Wie Zero Rohmaterial in einen professionellen Werbespot verwandelt",
+          "nextActions": "Schnitt anpassen, für andere Kanäle umfunktionieren oder Batch-Produktion starten",
+          "integrations": "Erforderliche Integrationen: Slack und Notion",
+          "tips": "Best Practices für die Promo-Video-Produktion mit Zero"
+        },
+        "scenario": "Sie haben gerade einen Feature-Walkthrough aufgenommen — drei stumme Bildschirmaufnahmen liegen in einem Ordner. Jetzt kommt der schwierige Teil: Narrationsskript schreiben, Hintergrundmusik auswählen, Übergänge timen und alles zu einem straffen 60-Sekunden-Promo zusammenschneiden. Sie könnten den Nachmittag im Video-Editor verbringen, oder Sie geben die Rohdateien an Zero weiter. Laden Sie Ihre Aufnahmen hoch, sagen Sie Zero, was das Video kommunizieren soll, und es liefert einen professionellen SaaS-Werbespot — Narration, Musik, Übergänge und alles — bereit zum Veröffentlichen.",
+        "promptVariants": [
+          {
+            "label": "Volle Produktion",
+            "prompt": "@Zero hier sind 3 Bildschirmaufnahmen unseres neuen Dashboard-Features. Produziere ein 60-Sekunden-Promo-Video mit Narration, Hintergrundmusik und flüssigen Übergängen. Der Ton sollte professionell und dynamisch sein. Betone Geschwindigkeit und Benutzerfreundlichkeit."
+          },
+          {
+            "label": "Schneller Schnitt",
+            "prompt": "@Zero verwandle diese Bildschirmaufnahme in einen 30-Sekunden-Produkt-Teaser. Füge eine kurze Narration und Hintergrundmusik hinzu. Halte es prägnant."
+          },
+          {
+            "label": "Batch-Produktion",
+            "prompt": "@Zero jedes Mal, wenn ich Bildschirmaufnahmen in #video-raw hochlade, produziere einen 60-Sekunden-Werbespot mit Narration und Musik und poste den fertigen Schnitt in #marketing-assets."
+          }
+        ],
+        "slackPreview": [
+          {
+            "name": "Ming",
+            "text": "@Zero Ich habe gerade 3 Bildschirmaufnahmen der neuen Berechtigungs-UI hochgeladen. Mache daraus ein 60-Sekunden-Promo-Video. Ton: professionell, betone Sicherheit und Einfachheit."
+          },
+          {
+            "name": "Zero",
+            "text": "Promo-Video fertig — 58s Laufzeit.\n\nNarration: 6 Segmente zu Berechtigungseinrichtung, Rollenzuweisung und Audit-Logs\nMusik: Beschwingter Ambient-Track, auf Übergänge abgestimmt\nÜbergänge: Sanfte Überblendungen zwischen den Szenen\n\nFertiger Schnitt hochgeladen. Bereit zur Überprüfung."
+          }
+        ],
+        "steps": [
+          {
+            "title": "Zero analysiert Ihre Rohaufnahmen",
+            "description": "Zero nimmt die hochgeladenen Bildschirmaufnahmen auf, identifiziert Schlüsselmomente und UI-Interaktionen und bestimmt die optimale Reihenfolge und das Tempo für das finale Video."
+          },
+          {
+            "title": "Zero schreibt die Narration und wählt Musik aus",
+            "description": "Basierend auf Ihrem Briefing erstellt Zero ein Narrationsskript, das die Wertversprechen des Produkts hervorhebt. Es wählt einen Hintergrundmusik-Track und ordnet Narrationssegmente den Video-Zeitstempeln zu."
+          },
+          {
+            "title": "Zero erstellt und exportiert den fertigen Schnitt",
+            "description": "Zero fügt Übergänge zwischen Szenen ein, legt Narration und Musik übereinander und exportiert einen professionellen Werbespot (30–90s), bereit für Social Media, Ihre Website oder Vertriebspräsentationen."
+          }
+        ],
+        "nextActions": [
+          {
+            "title": "Änderung anfordern",
+            "description": "Ton, Tempo oder Schwerpunkt anpassen",
+            "examplePrompt": "@Zero mache die Narration umgangssprachlicher und kürze 10 Sekunden aus dem Mittelteil."
+          },
+          {
+            "title": "Für einen anderen Kanal umfunktionieren",
+            "description": "Kürzere Version für Social Media erstellen",
+            "examplePrompt": "@Zero erstelle eine 15-Sekunden-Teaser-Version dieses Videos, optimiert für X/Twitter."
+          },
+          {
+            "title": "Zur Routine machen",
+            "description": "Promo-Video-Produktion für jedes Feature-Release automatisieren",
+            "examplePrompt": "@Zero jedes Mal, wenn eine neue Bildschirmaufnahme in #video-raw hochgeladen wird, produziere einen 60-Sekunden-Werbespot und poste in #marketing-assets."
+          }
+        ],
+        "integrations": [
+          {
+            "description": "Zero empfängt rohe Bildschirmaufnahmen und liefert fertige Promo-Videos über Slack. Laden Sie Dateien direkt in der Konversation hoch."
+          },
+          {
+            "description": "Optional speichert Zero das Narrationsskript und das Video-Briefing in Notion für Ihr Content-Archiv und künftige Referenz."
+          }
+        ],
+        "tips": [
+          "Fügen Sie Ihrem Upload ein klares Briefing bei: Zielgruppe, Kernbotschaft und gewünschter Ton. Je spezifischer Sie sind, desto besser wird der erste Schnitt.",
+          "Nehmen Sie klare, fokussierte Bildschirmaufnahmen auf — ein Feature oder Ablauf pro Aufnahme. Zero arbeitet am besten mit Material, das einen klaren Anfang und ein klares Ende hat.",
+          "Fordern Sie eine Narrationsskript-Überprüfung vor dem vollständigen Rendering an, wenn Sie die Botschaft zuerst feinabstimmen möchten."
+        ]
       }
     },
     "filter": {

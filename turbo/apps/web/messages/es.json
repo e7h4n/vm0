@@ -3418,6 +3418,88 @@
           "Mantén una lista de tests inestables conocidos y dile a Zero que los excluya de las alertas. Esto evita la fatiga de alertas y mantiene la señal limpia.",
           "Combínalo con auto-merge-releases para un pipeline de release completo: merge-queue-monitor detecta PRs bloqueados, auto-merge-releases publica el release cuando la cola se despeja."
         ]
+      },
+      "promo-video-from-recordings": {
+        "title": "Convierte grabaciones de pantalla en videos promocionales profesionales",
+        "description": "Sube grabaciones de pantalla sin audio a Zero. Escribe el guion de narración, selecciona música, añade transiciones y exporta un corto promocional SaaS listo para compartir en 30–90 segundos.",
+        "timeSaved": "~2 horas ahorradas por video",
+        "headings": {
+          "scenario": "Por qué producir videos promocionales a partir de grabaciones toma tanto tiempo",
+          "prompt": "Cómo pedir a Zero que produzca un video promocional a partir de tus grabaciones",
+          "steps": "Cómo Zero transforma material en bruto en un corto promocional profesional",
+          "nextActions": "Ajusta el corte, reutiliza para otros canales o programa un lote",
+          "integrations": "Integraciones requeridas: Slack y Notion",
+          "tips": "Buenas prácticas para la producción de videos promocionales con Zero"
+        },
+        "scenario": "Acabas de terminar de grabar un recorrido de una nueva funcionalidad: tres capturas de pantalla sin audio en una carpeta. Ahora viene la parte difícil: escribir el guion de narración, elegir música de fondo, sincronizar transiciones y editar todo en un promo de 60 segundos. Podrías pasar la tarde en un editor de video, o podrías entregar los archivos en bruto a Zero. Sube tus grabaciones, dile a Zero qué debe comunicar el video, y te entrega un corto promocional SaaS pulido — narración, música, transiciones y todo — listo para publicar.",
+        "promptVariants": [
+          {
+            "label": "Producción completa",
+            "prompt": "@Zero aquí hay 3 grabaciones de pantalla de nuestra nueva función de dashboard. Produce un video promocional de 60 segundos con narración, música de fondo y transiciones suaves. El tono debe ser profesional y dinámico. Destaca la velocidad y facilidad de uso."
+          },
+          {
+            "label": "Corte rápido",
+            "prompt": "@Zero convierte esta grabación de pantalla en un teaser de producto de 30 segundos. Añade una narración corta y música de fondo. Que sea impactante."
+          },
+          {
+            "label": "Producción por lotes",
+            "prompt": "@Zero cada vez que suba grabaciones de pantalla a #video-raw, produce un corto promocional de 60 segundos con narración y música, luego publica el corte final en #marketing-assets."
+          }
+        ],
+        "slackPreview": [
+          {
+            "name": "Ming",
+            "text": "@Zero acabo de subir 3 grabaciones de pantalla de la nueva UI de permisos. Conviértelas en un video promocional de 60 segundos. Tono: profesional, destaca seguridad y simplicidad."
+          },
+          {
+            "name": "Zero",
+            "text": "Video promocional completo — 58s de duración.\n\nNarración: 6 segmentos cubriendo configuración de permisos, asignación de roles y registros de auditoría\nMúsica: Pista ambient dinámica, sincronizada con las transiciones\nTransiciones: Fundidos cruzados suaves entre cada pantalla\n\nCorte final subido. Listo para revisión."
+          }
+        ],
+        "steps": [
+          {
+            "title": "Zero analiza tus grabaciones en bruto",
+            "description": "Zero procesa las grabaciones de pantalla subidas, identifica momentos clave e interacciones de UI, y determina la secuencia y ritmo óptimos para el video final."
+          },
+          {
+            "title": "Zero escribe la narración y selecciona la música",
+            "description": "Basándose en tu brief, Zero genera un guion de narración que destaca las propuestas de valor del producto. Selecciona una pista de música de fondo y asigna los segmentos de narración a las marcas de tiempo del video."
+          },
+          {
+            "title": "Zero ensambla y exporta el corte final",
+            "description": "Zero añade transiciones entre escenas, superpone narración y música, y exporta un corto promocional pulido (30–90s) listo para compartir en redes sociales, tu sitio web o presentaciones de ventas."
+          }
+        ],
+        "nextActions": [
+          {
+            "title": "Solicitar una revisión",
+            "description": "Ajustar tono, ritmo o énfasis",
+            "examplePrompt": "@Zero haz la narración más conversacional y recorta 10 segundos de la sección intermedia."
+          },
+          {
+            "title": "Reutilizar para otro canal",
+            "description": "Crear una versión más corta para redes sociales",
+            "examplePrompt": "@Zero crea una versión teaser de 15 segundos de este video optimizada para X/Twitter."
+          },
+          {
+            "title": "Hacerlo rutina",
+            "description": "Automatizar la producción de videos promocionales para cada lanzamiento",
+            "examplePrompt": "@Zero cada vez que se suba una nueva grabación de pantalla a #video-raw, produce un promo de 60 segundos y publícalo en #marketing-assets."
+          }
+        ],
+        "integrations": [
+          {
+            "description": "Zero recibe grabaciones de pantalla en bruto y entrega videos promocionales terminados a través de Slack. Sube archivos directamente en la conversación."
+          },
+          {
+            "description": "Opcionalmente, Zero guarda el guion de narración y el brief del video en Notion para tu archivo de contenido y referencia futura."
+          }
+        ],
+        "tips": [
+          "Incluye un brief claro con tu carga: audiencia objetivo, mensaje clave y tono deseado. Cuanto más específico seas, mejor será el primer corte.",
+          "Graba capturas de pantalla limpias y enfocadas — una funcionalidad o flujo por grabación. Zero funciona mejor con material que tiene un inicio y final claros.",
+          "Pide una revisión del guion de narración antes del renderizado completo si quieres ajustar el mensaje primero."
+        ]
       }
     },
     "filter": {
