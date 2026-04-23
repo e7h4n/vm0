@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { initServices } from "../../../../src/lib/init-services";
 import { processStaleCredits } from "../../../../src/lib/zero/credit/credit-service";
+import { processStaleUsageEvents } from "../../../../src/lib/zero/credit/usage-event-service";
 import { logger } from "../../../../src/lib/shared/logger";
 import { env } from "../../../../src/env";
 
@@ -20,10 +21,18 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const processed = await processStaleCredits();
+  const processedUsageEvents = await processStaleUsageEvents();
 
-  if (processed > 0) {
-    log.debug("Credit processing cron completed", { processed });
+  if (processed > 0 || processedUsageEvents > 0) {
+    log.debug("Credit processing cron completed", {
+      processed,
+      processedUsageEvents,
+    });
   }
 
-  return NextResponse.json({ success: true, processed });
+  return NextResponse.json({
+    success: true,
+    processed,
+    processedUsageEvents,
+  });
 }

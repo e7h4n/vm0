@@ -36,10 +36,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/process-usage-events",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/voice-chat-cleanup",
       "schedule": "* * * * *"
     },
