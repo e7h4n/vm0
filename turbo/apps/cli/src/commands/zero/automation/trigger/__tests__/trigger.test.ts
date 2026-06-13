@@ -243,6 +243,157 @@ describe("zero automation trigger commands", () => {
     });
   });
 
+  describe("update", () => {
+    function captureUpdateTrigger(response: object): {
+      id?: string;
+      body?: Record<string, unknown>;
+    } {
+      const captured: { id?: string; body?: Record<string, unknown> } = {};
+      server.use(
+        http.patch(
+          "http://localhost:3000/api/automation-triggers/:id",
+          async ({ request, params }) => {
+            captured.id = params.id as string;
+            captured.body = (await request.json()) as Record<string, unknown>;
+            return HttpResponse.json({ trigger: response });
+          },
+        ),
+      );
+      return captured;
+    }
+
+    it("should update a cron trigger with --expr and --timezone", async () => {
+      const captured = captureUpdateTrigger({
+        ...cronTrigger,
+        cronExpression: "0 10 * * *",
+        timezone: "Asia/Shanghai",
+      });
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--expr",
+        "0 10 * * *",
+        "--timezone",
+        "Asia/Shanghai",
+      ]);
+
+      expect(captured.id).toBe(TRIGGER_ID);
+      expect(captured.body).toEqual({
+        kind: "cron",
+        cronExpression: "0 10 * * *",
+        timezone: "Asia/Shanghai",
+      });
+
+      const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(logCalls).toContain(`Trigger ${TRIGGER_ID} updated`);
+      expect(logCalls).toContain("0 10 * * *");
+    });
+
+    it("should switch a loop trigger to once with --at", async () => {
+      const captured = captureUpdateTrigger(onceTrigger);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--at",
+        "2026-06-10T09:00",
+      ]);
+
+      expect(captured.body).toEqual({
+        kind: "once",
+        atTime: "2026-06-10T09:00",
+      });
+    });
+
+    it("should reject missing schedule flags", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync(["node", "cli", "update", TRIGGER_ID]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Nothing to update"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should reject conflicting schedule flags", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--expr",
+          "0 9 * * *",
+          "--every",
+          "15m",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Use at most one"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should reject --timezone with --every", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--every",
+          "15m",
+          "--timezone",
+          "UTC",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("--timezone only applies"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should surface API errors", async () => {
+      server.use(
+        http.patch("http://localhost:3000/api/automation-triggers/:id", () => {
+          return HttpResponse.json(
+            {
+              error: {
+                message: "Webhook triggers cannot be updated",
+                code: "BAD_REQUEST",
+              },
+            },
+            { status: 400 },
+          );
+        }),
+      );
+
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--expr",
+          "0 9 * * *",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Webhook triggers cannot be updated"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
+
   describe("list", () => {
     it("should display the triggers table", async () => {
       server.use(

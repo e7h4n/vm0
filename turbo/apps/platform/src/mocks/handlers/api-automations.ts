@@ -257,6 +257,28 @@ export const apiAutomationsHandlers = [
     return respond(201, { trigger: toTrigger(updated) });
   }),
 
+  // PATCH /api/automation-triggers/:id
+  mockApi(automationTriggersContract.update, ({ params, body, respond }) => {
+    const automationId = automationIdForTrigger(params.id);
+    const row = automationId
+      ? getMockAutomations().find((s) => s.id === automationId)
+      : undefined;
+    if (!row) {
+      return respond(404, {
+        error: { message: "Not found", code: "NOT_FOUND" },
+      });
+    }
+    const updated: AutomationView = {
+      ...row,
+      ...triggerFields(body),
+      enabled: true,
+      consecutiveFailures: 0,
+      updatedAt: nowDate().toISOString(),
+    };
+    replaceRow(updated);
+    return respond(200, { trigger: toTrigger(updated) });
+  }),
+
   // DELETE /api/automation-triggers/:id
   mockApi(automationTriggersContract.remove, ({ params, respond }) => {
     const automationId = automationIdForTrigger(params.id);

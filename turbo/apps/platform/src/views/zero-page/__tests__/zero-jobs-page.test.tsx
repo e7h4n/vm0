@@ -13,7 +13,10 @@ import {
   zeroAgentsByIdContract,
   zeroAgentsMainContract,
 } from "@vm0/api-contracts/contracts/zero-agents";
-import { automationsByRefContract } from "@vm0/api-contracts/contracts/automations";
+import {
+  automationsByRefContract,
+  automationTriggersContract,
+} from "@vm0/api-contracts/contracts/automations";
 import type { AutomationView } from "@vm0/api-contracts/contracts/automation-view";
 import {
   type TeamComposeItem,
@@ -488,15 +491,15 @@ describe("zero jobs page", () => {
       return respond(200, toMockAutomationResponse(updated));
     });
     context.mocks.api(
-      automationsByRefContract.addTrigger,
+      automationTriggersContract.update,
       ({ body, respond }) => {
         capturedTriggerBody = body;
         const currentAutomation = automations[0];
         if (!currentAutomation) {
           throw new Error("automation fixture not found");
         }
-        if (body.kind !== "cron") {
-          throw new Error("expected a cron trigger replacement");
+        if (currentAutomation.triggerType === "loop") {
+          throw new Error("expected a time trigger, not a loop");
         }
         const updated = createMockAutomationView({
           ...currentAutomation,
@@ -513,7 +516,7 @@ describe("zero jobs page", () => {
         if (!trigger) {
           throw new Error("expected a projected trigger");
         }
-        return respond(201, { trigger });
+        return respond(200, { trigger });
       },
     );
 

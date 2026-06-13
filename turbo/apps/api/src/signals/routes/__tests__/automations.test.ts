@@ -972,6 +972,180 @@ describe("Automations API", () => {
     );
   });
 
+  it("updates a cron trigger in place, recomputes nextRunAt, and resets failures", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "update-cron",
+      agentId: fixture.composeId,
+      trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+    });
+    const triggerId = created.automation.triggers[0]!.id;
+    const automationId = created.automation.id;
+
+    const db = store.set(writeDb$);
+    const lastRunAt = new Date(now() - 60_000);
+    await db
+      .update(automationTriggers)
+      .set({
+        consecutiveFailures: 2,
+        lastRunAt,
+      })
+      .where(eq(automationTriggers.id, triggerId));
+
+    const updated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: {
+          kind: "cron",
+          cronExpression: "0 10 * * *",
+          timezone: "Asia/Shanghai",
+        },
+      }),
+      [200],
+    );
+
+    const updatedTrigger = updated.body.trigger;
+    expect(updatedTrigger.id).toBe(triggerId);
+    expect(updatedTrigger.automationId).toBe(automationId);
+    expect(updatedTrigger.kind).toBe("cron");
+    expect(updatedTrigger.cronExpression).toBe("0 10 * * *");
+    expect(updatedTrigger.timezone).toBe("Asia/Shanghai");
+    expect(Date.parse(updatedTrigger.nextRunAt!)).toBeGreaterThan(now());
+    expect(updatedTrigger.consecutiveFailures).toBe(0);
+
+    const [row] = await findTriggerRows(automationId);
+    expect(row?.id).toBe(triggerId);
+    expect(row?.createdAt.toISOString()).toBe(
+      created.automation.triggers[0]?.createdAt,
+    );
+    expect(row?.lastRunAt?.toISOString()).toBe(lastRunAt.toISOString());
+    expect(row?.consecutiveFailures).toBe(0);
+  });
+
+  it("switches a loop trigger to a once trigger in place", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "loop-to-once",
+      agentId: fixture.composeId,
+      trigger: { kind: "loop", intervalSeconds: 300 },
+    });
+    const triggerId = created.automation.triggers[0]!.id;
+    const automationId = created.automation.id;
+    const atTime = new Date(now() + 3_600_000).toISOString();
+
+    const updated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "once", atTime, timezone: "UTC" },
+      }),
+      [200],
+    );
+
+    expect(updated.body.trigger.id).toBe(triggerId);
+    expect(updated.body.trigger.automationId).toBe(automationId);
+    expect(updated.body.trigger.kind).toBe("once");
+    expect(updated.body.trigger.atTime).toBe(atTime);
+    expect(updated.body.trigger.timezone).toBe("UTC");
+    expect(updated.body.trigger.nextRunAt).toBe(atTime);
+
+    const [row] = await findTriggerRows(automationId);
+    expect(row?.kind).toBe("once");
+    expect(row?.intervalSeconds).toBeNull();
+    expect(row?.cronExpression).toBeNull();
+  });
+
+  it("rejects updating a webhook trigger through the schedule update path", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "webhook-no-schedule-update",
+      agentId: fixture.composeId,
+      trigger: { kind: "webhook" },
+    });
+    const triggerId = created.automation.triggers[0]!.id;
+
+    const rejected = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *" },
+      }),
+      [400],
+    );
+    expect(rejected.body.error.message).toContain("Webhook triggers cannot");
+  });
+
+  it("rejects invalid schedule flags on trigger update", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "bad-update",
+      agentId: fixture.composeId,
+      trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+    });
+    const triggerId = created.automation.triggers[0]!.id;
+
+    const badCron = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "not a cron" },
+      }),
+      [400],
+    );
+    expect(badCron.body.error.code).toBe("BAD_REQUEST");
+
+    const badTimezone = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: {
+          kind: "cron",
+          cronExpression: "0 9 * * *",
+          timezone: "Mars/Olympus",
+        },
+      }),
+      [400],
+    );
+    expect(badTimezone.body.error.message).toContain("Invalid timezone");
+
+    const pastOnce = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: {
+          kind: "once",
+          atTime: new Date(now() - 60_000).toISOString(),
+        },
+      }),
+      [400],
+    );
+    expect(pastOnce.body.error.message).toContain("already passed");
+  });
+
+  it("returns 404 when updating an unknown trigger", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const response = await accept(
+      triggerApi().update({
+        params: { id: "00000000-0000-0000-0000-000000000000" },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *" },
+      }),
+      [404],
+    );
+    expect(response.body.error.code).toBe("NOT_FOUND");
+  });
+
   it("returns 401 when unauthenticated", async () => {
     const response = await accept(mainApi().list({ headers: {} }), [401]);
     expect(response.body.error.code).toBe("UNAUTHORIZED");
