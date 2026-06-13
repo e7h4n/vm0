@@ -360,6 +360,162 @@ describe("zero automation trigger commands", () => {
     });
   });
 
+  describe("update", () => {
+    function captureUpdateTrigger(response: object) {
+      const captured: { id?: string; body?: Record<string, unknown> } = {};
+      server.use(
+        http.patch(
+          "http://localhost:3000/api/automation-triggers/:id",
+          async ({ request, params }) => {
+            captured.id = params.id as string;
+            captured.body = (await request.json()) as Record<string, unknown>;
+            return HttpResponse.json({ trigger: response });
+          },
+        ),
+      );
+      return captured;
+    }
+
+    it("updates to a new cron expression", async () => {
+      const updated = { ...cronTrigger, cronExpression: "0 10 * * *" };
+      const captured = captureUpdateTrigger(updated);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--expr",
+        "0 10 * * *",
+      ]);
+
+      expect(captured.id).toBe(TRIGGER_ID);
+      expect(captured.body).toEqual({
+        kind: "cron",
+        cronExpression: "0 10 * * *",
+      });
+      const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(logCalls).toContain(`Trigger ${TRIGGER_ID} updated`);
+      expect(logCalls).toContain("0 10 * * *");
+    });
+
+    it("updates to a new cron expression with timezone", async () => {
+      const updated = {
+        ...cronTrigger,
+        cronExpression: "0 9 * * 1-5",
+        timezone: "Asia/Shanghai",
+      };
+      const captured = captureUpdateTrigger(updated);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--expr",
+        "0 9 * * 1-5",
+        "--timezone",
+        "Asia/Shanghai",
+      ]);
+
+      expect(captured.body).toEqual({
+        kind: "cron",
+        cronExpression: "0 9 * * 1-5",
+        timezone: "Asia/Shanghai",
+      });
+    });
+
+    it("switches kind from cron to loop via --every", async () => {
+      const captured = captureUpdateTrigger(loopTrigger);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--every",
+        "30m",
+      ]);
+
+      expect(captured.body).toEqual({ kind: "loop", intervalSeconds: 1800 });
+      const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(logCalls).toContain("loop");
+    });
+
+    it("switches kind to once via --at", async () => {
+      const atTime = "2026-06-15T09:00:00Z";
+      const captured = captureUpdateTrigger({ ...onceTrigger, atTime });
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--at",
+        atTime,
+        "--timezone",
+        "Asia/Shanghai",
+      ]);
+
+      expect(captured.body).toEqual({
+        kind: "once",
+        atTime,
+        timezone: "Asia/Shanghai",
+      });
+    });
+
+    it("rejects missing schedule flag", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync(["node", "cli", "update", TRIGGER_ID]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Provide exactly one schedule flag"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("rejects conflicting schedule flags", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--expr",
+          "0 9 * * *",
+          "--every",
+          "15m",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Only one schedule flag"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("rejects --timezone with --every", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--every",
+          "15m",
+          "--timezone",
+          "UTC",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("--timezone does not apply"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
+
   describe("rotate-secret", () => {
     it("should rotate a webhook trigger secret and print it once", async () => {
       server.use(

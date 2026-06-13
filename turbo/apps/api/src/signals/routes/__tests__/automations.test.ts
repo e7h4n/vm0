@@ -972,6 +972,227 @@ describe("Automations API", () => {
     );
   });
 
+  it("updates a time trigger's schedule in place", async () => {
+    const fixture = await seedFixture();
+
+    // Start with a cron trigger.
+    const created = await createAutomation({
+      name: "in-place-update",
+      agentId: fixture.composeId,
+      trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+    });
+    const triggerId = created.automation.triggers[0]!.id;
+    const automationId = created.automation.id;
+
+    // Verify the cron trigger's initial nextRunAt is set.
+    const [initial] = await findTriggerRows(automationId);
+    expect(initial?.nextRunAt).not.toBeNull();
+    expect(initial?.consecutiveFailures).toBe(0);
+
+    // Simulate accumulated failures.
+    const db = store.set(writeDb$);
+    await db
+      .update(automationTriggers)
+      .set({ consecutiveFailures: 2 })
+      .where(eq(automationTriggers.id, triggerId));
+
+    // Update cron expression in place — same kind, new schedule.
+    const cronUpdated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 10 * * *", timezone: "Asia/Shanghai" },
+      }),
+      [200],
+    );
+    expect(cronUpdated.body.trigger.id).toBe(triggerId);
+    if (cronUpdated.body.trigger.kind !== "cron") {
+      throw new Error("Expected a cron trigger");
+    }
+    expect(cronUpdated.body.trigger.cronExpression).toBe("0 10 * * *");
+    expect(cronUpdated.body.trigger.timezone).toBe("Asia/Shanghai");
+    expect(cronUpdated.body.trigger.nextRunAt).not.toBeNull();
+    expect(Date.parse(cronUpdated.body.trigger.nextRunAt!)).toBeGreaterThan(now());
+    // consecutiveFailures is reset to zero on update.
+    expect(cronUpdated.body.trigger.consecutiveFailures).toBe(0);
+    // The automation row count stays the same (no new trigger was inserted).
+    await expect(findTriggerRows(automationId)).resolves.toHaveLength(1);
+
+    // Switch kind from cron → loop; old kind's config columns must be nulled.
+    const loopUpdated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "loop", intervalSeconds: 900 },
+      }),
+      [200],
+    );
+    expect(loopUpdated.body.trigger.id).toBe(triggerId);
+    if (loopUpdated.body.trigger.kind !== "loop") {
+      throw new Error("Expected a loop trigger");
+    }
+    expect(loopUpdated.body.trigger.intervalSeconds).toBe(900);
+    expect(loopUpdated.body.trigger.nextRunAt).not.toBeNull();
+    // The DB row should have cronExpression nulled.
+    const [loopRow] = await findTriggerRows(automationId);
+    expect(loopRow?.cronExpression).toBeNull();
+    expect(loopRow?.atTime).toBeNull();
+    expect(loopRow?.intervalSeconds).toBe(900);
+
+    // Switch kind from loop → once.
+    const futureTime = new Date(now() + 3_600_000).toISOString();
+    const onceUpdated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "once", atTime: futureTime },
+      }),
+      [200],
+    );
+    expect(onceUpdated.body.trigger.id).toBe(triggerId);
+    if (onceUpdated.body.trigger.kind !== "once") {
+      throw new Error("Expected a once trigger");
+    }
+    expect(onceUpdated.body.trigger.atTime).toBe(futureTime);
+    // DB: intervalSeconds must be nulled.
+    const [onceRow] = await findTriggerRows(automationId);
+    expect(onceRow?.intervalSeconds).toBeNull();
+    expect(onceRow?.cronExpression).toBeNull();
+
+    // Trigger count remains exactly one throughout all updates.
+    await expect(findTriggerRows(automationId)).resolves.toHaveLength(1);
+  });
+
+  it("rejects trigger update for webhook trigger, past atTime, and bad cron/timezone", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "update-validation",
+      agentId: fixture.composeId,
+    });
+    const cronAdded = await accept(
+      refApi().addTrigger({
+        params: { ref: created.automation.id },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *" },
+      }),
+      [201],
+    );
+    const webhookAdded = await accept(
+      refApi().addTrigger({
+        params: { ref: created.automation.id },
+        headers: SESSION_HEADERS,
+        body: { kind: "webhook" },
+      }),
+      [201],
+    );
+
+    // Webhook trigger cannot be updated through this path.
+    const webhookRejected = await accept(
+      triggerApi().update({
+        params: { id: webhookAdded.body.trigger.id },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *" },
+      }),
+      [400],
+    );
+    expect(webhookRejected.body.error.message).toContain("Webhook triggers");
+
+    const cronTriggerId = cronAdded.body.trigger.id;
+
+    // Past atTime is rejected.
+    const pastAtTime = await accept(
+      triggerApi().update({
+        params: { id: cronTriggerId },
+        headers: SESSION_HEADERS,
+        body: {
+          kind: "once",
+          atTime: new Date(now() - 60_000).toISOString(),
+        },
+      }),
+      [400],
+    );
+    expect(pastAtTime.body.error.message).toContain("already passed");
+
+    // Invalid cron expression is rejected.
+    const badCron = await accept(
+      triggerApi().update({
+        params: { id: cronTriggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "not a cron" },
+      }),
+      [400],
+    );
+    expect(badCron.body.error.code).toBe("BAD_REQUEST");
+
+    // Invalid timezone is rejected.
+    const badTimezone = await accept(
+      triggerApi().update({
+        params: { id: cronTriggerId },
+        headers: SESSION_HEADERS,
+        body: {
+          kind: "cron",
+          cronExpression: "0 9 * * *",
+          timezone: "Mars/Olympus",
+        },
+      }),
+      [400],
+    );
+    expect(badTimezone.body.error.message).toContain("Invalid timezone");
+
+    // Unknown trigger id returns 404.
+    const notFound = await accept(
+      triggerApi().update({
+        params: { id: "00000000-0000-0000-0000-000000000000" },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *" },
+      }),
+      [404],
+    );
+    expect(notFound.body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("nextRunAt is null for cron/loop updates on a disabled automation", async () => {
+    const fixture = await seedFixture();
+
+    const created = await createAutomation({
+      name: "disabled-update",
+      agentId: fixture.composeId,
+      enabled: false,
+      trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+    });
+    const triggerId = created.automation.triggers[0]!.id;
+
+    // Automation is disabled; nextRunAt should stay null for cron.
+    const cronUpdated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 10 * * *" },
+      }),
+      [200],
+    );
+    if (cronUpdated.body.trigger.kind !== "cron") {
+      throw new Error("Expected a cron trigger");
+    }
+    expect(cronUpdated.body.trigger.nextRunAt).toBeNull();
+
+    // Loop is due immediately regardless of automation enabled state.
+    const loopUpdated = await accept(
+      triggerApi().update({
+        params: { id: triggerId },
+        headers: SESSION_HEADERS,
+        body: { kind: "loop", intervalSeconds: 300 },
+      }),
+      [200],
+    );
+    if (loopUpdated.body.trigger.kind !== "loop") {
+      throw new Error("Expected a loop trigger");
+    }
+    expect(loopUpdated.body.trigger.nextRunAt).not.toBeNull();
+  });
+
   it("returns 401 when unauthenticated", async () => {
     const response = await accept(mainApi().list({ headers: {} }), [401]);
     expect(response.body.error.code).toBe("UNAUTHORIZED");

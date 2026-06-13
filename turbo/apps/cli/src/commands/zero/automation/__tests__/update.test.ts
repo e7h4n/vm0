@@ -13,8 +13,25 @@ import { server } from "../../../../mocks/server";
 import { updateCommand } from "../update";
 import chalk from "chalk";
 
+const TRIGGER_ID = "22222222-2222-4222-8222-222222222222";
+const AUTOMATION_ID = "11111111-1111-4111-8111-111111111111";
+
+const cronTrigger = {
+  id: TRIGGER_ID,
+  automationId: AUTOMATION_ID,
+  enabled: true,
+  kind: "cron",
+  cronExpression: "0 9 * * *",
+  timezone: "UTC",
+  nextRunAt: "2026-06-12T09:00:00Z",
+  lastRunAt: null,
+  consecutiveFailures: 0,
+  createdAt: "2026-06-01T00:00:00Z",
+  updatedAt: "2026-06-01T00:00:00Z",
+};
+
 const mockAutomation = {
-  id: "11111111-1111-4111-8111-111111111111",
+  id: AUTOMATION_ID,
   agentId: "550e8400-e29b-41d4-a716-446655440000",
   displayName: "my-agent",
   userId: "user-001",
@@ -27,6 +44,11 @@ const mockAutomation = {
   createdAt: "2026-06-01T00:00:00Z",
   updatedAt: "2026-06-01T00:00:00Z",
   triggers: [],
+};
+
+const mockAutomationWithCronTrigger = {
+  ...mockAutomation,
+  triggers: [cronTrigger],
 };
 
 describe("zero automation update command", () => {
@@ -97,6 +119,146 @@ describe("zero automation update command", () => {
       expect.stringContaining("Nothing to update"),
     );
     expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("updates the automation's single time trigger in place via --expr", async () => {
+    const updatedTrigger = { ...cronTrigger, cronExpression: "0 10 * * *" };
+    let patchTriggerBody: Record<string, unknown> | undefined;
+    let patchTriggerId: string | undefined;
+
+    server.use(
+      // show automation (GET :ref) returns the automation with one cron trigger
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json(mockAutomationWithCronTrigger);
+      }),
+      // updateAutomationTrigger (PATCH /api/automation-triggers/:id)
+      http.patch(
+        "http://localhost:3000/api/automation-triggers/:id",
+        async ({ request, params }) => {
+          patchTriggerId = params.id as string;
+          patchTriggerBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json({ trigger: updatedTrigger });
+        },
+      ),
+    );
+
+    await updateCommand.parseAsync([
+      "node",
+      "cli",
+      "alerts",
+      "--expr",
+      "0 10 * * *",
+    ]);
+
+    expect(patchTriggerId).toBe(TRIGGER_ID);
+    expect(patchTriggerBody).toEqual({
+      kind: "cron",
+      cronExpression: "0 10 * * *",
+    });
+
+    const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+    expect(logCalls).toContain(`Trigger ${TRIGGER_ID} schedule updated`);
+    expect(logCalls).toContain("0 10 * * *");
+  });
+
+  it("rejects --expr when automation has no time trigger", async () => {
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json(mockAutomation); // triggers: []
+      }),
+    );
+
+    await expect(async () => {
+      await updateCommand.parseAsync(["node", "cli", "alerts", "--expr", "0 9 * * *"]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("no time trigger"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("rejects --expr when automation has multiple time triggers", async () => {
+    const secondTrigger = { ...cronTrigger, id: "33333333-3333-4333-8333-333333333333" };
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json({
+          ...mockAutomationWithCronTrigger,
+          triggers: [cronTrigger, secondTrigger],
+        });
+      }),
+    );
+
+    await expect(async () => {
+      await updateCommand.parseAsync(["node", "cli", "alerts", "--expr", "0 9 * * *"]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("2 time triggers"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("rejects conflicting schedule flags", async () => {
+    await expect(async () => {
+      await updateCommand.parseAsync([
+        "node",
+        "cli",
+        "alerts",
+        "--expr",
+        "0 9 * * *",
+        "--every",
+        "15m",
+      ]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Only one schedule flag"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("can combine identity and schedule update in one call", async () => {
+    const updatedTrigger = { ...cronTrigger, cronExpression: "0 10 * * *" };
+    let patchAutomationBody: Record<string, unknown> | undefined;
+    let patchTriggerBody: Record<string, unknown> | undefined;
+
+    server.use(
+      http.patch(
+        "http://localhost:3000/api/automations/:ref",
+        async ({ request }) => {
+          patchAutomationBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json({ ...mockAutomation, name: "alerts-v2" });
+        },
+      ),
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json(mockAutomationWithCronTrigger);
+      }),
+      http.patch(
+        "http://localhost:3000/api/automation-triggers/:id",
+        async ({ request }) => {
+          patchTriggerBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json({ trigger: updatedTrigger });
+        },
+      ),
+    );
+
+    await updateCommand.parseAsync([
+      "node",
+      "cli",
+      "alerts",
+      "-n",
+      "alerts-v2",
+      "--expr",
+      "0 10 * * *",
+    ]);
+
+    expect(patchAutomationBody).toMatchObject({ name: "alerts-v2" });
+    expect(patchTriggerBody).toEqual({ kind: "cron", cronExpression: "0 10 * * *" });
+
+    const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+    expect(logCalls).toContain('Automation "alerts-v2" updated');
+    expect(logCalls).toContain(`Trigger ${TRIGGER_ID} schedule updated`);
   });
 
   it("should surface API errors", async () => {
