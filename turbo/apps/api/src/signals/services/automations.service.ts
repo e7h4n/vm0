@@ -1,5 +1,8 @@
 import { command } from "ccstate";
-import type { CreateTriggerRequest } from "@vm0/api-contracts/contracts/automations";
+import type {
+  CreateTriggerRequest,
+  UpdateTriggerRequest,
+} from "@vm0/api-contracts/contracts/automations";
 import { agentRuns } from "@vm0/db/schema/agent-run";
 import { automations, automationTriggers } from "@vm0/db/schema/automation";
 import { chatThreads } from "@vm0/db/schema/chat-thread";
@@ -1007,6 +1010,143 @@ export const removeTrigger$ = command(
     signal.throwIfAborted();
 
     return { kind: "ok" };
+  },
+);
+
+/**
+ * Update a time trigger's schedule in place. The trigger row identity, runtime
+ * history (lastRunAt, lastRunId), and enabled flag are preserved. Webhook
+ * triggers are rejected — they carry no schedule config to update. The
+ * schedule config is validated the same way as at creation (timezone, cron
+ * parse, future atTime), then `nextRunAt` is recomputed and
+ * `consecutiveFailures` is reset to zero. A kind switch (e.g. loop→cron)
+ * nulls the old kind's config columns to satisfy the B4 CHECK constraint.
+ */
+export const updateTrigger$ = command(
+  async (
+    { set },
+    args: {
+      readonly userId: string;
+      readonly orgId: string;
+      readonly id: string;
+      readonly request: UpdateTriggerRequest;
+    },
+    signal: AbortSignal,
+  ): Promise<TriggerMutationResult> => {
+    const db = set(writeDb$);
+    const owned = await loadOwnedTrigger(db, args);
+    signal.throwIfAborted();
+    if (!owned) {
+      return { kind: "not_found" };
+    }
+
+    if (owned.trigger.kind === "webhook") {
+      return {
+        kind: "bad_request",
+        message:
+          "Webhook triggers cannot be updated through this path — add and remove the trigger instead",
+      };
+    }
+
+    const { request } = args;
+    const currentTime = nowDate();
+
+    // Validate the new schedule using the same rules as trigger creation.
+    if (request.kind === "cron" || request.kind === "once") {
+      const timezone = request.timezone ?? "UTC";
+      if (!isValidTimeZone(timezone)) {
+        return {
+          kind: "bad_request",
+          message: `Invalid timezone: ${timezone}`,
+        };
+      }
+      if (request.kind === "cron") {
+        const next = await settle(
+          (async (): Promise<Date | null> => {
+            await Promise.resolve();
+            return calculateNextRun(
+              request.cronExpression,
+              timezone,
+              currentTime,
+            );
+          })(),
+        );
+        if (!next.ok || !next.value) {
+          return {
+            kind: "bad_request",
+            message: `Invalid cron expression: ${request.cronExpression}`,
+          };
+        }
+      }
+      if (request.kind === "once") {
+        const atTime = new Date(request.atTime);
+        if (Number.isNaN(atTime.getTime())) {
+          return {
+            kind: "bad_request",
+            message: `Invalid atTime: ${request.atTime}`,
+          };
+        }
+        if (atTime <= currentTime) {
+          return {
+            kind: "bad_request",
+            message: `Cannot update the trigger: time ${atTime.toISOString()} has already passed`,
+          };
+        }
+      }
+    }
+
+    // Build the update payload. Null out all three time config columns first
+    // so a kind switch (e.g. loop→cron) satisfies the B4 CHECK constraint
+    // (each kind carries exactly its own config columns).
+    const timezone =
+      request.kind === "cron" || request.kind === "once"
+        ? (request.timezone ?? "UTC")
+        : "UTC";
+
+    let nextRunAt: Date | null = null;
+    if (owned.automation.enabled) {
+      if (request.kind === "cron") {
+        nextRunAt = calculateNextRun(
+          request.cronExpression,
+          timezone,
+          currentTime,
+        );
+      } else if (request.kind === "once") {
+        const atTime = new Date(request.atTime);
+        nextRunAt = atTime > currentTime ? atTime : null;
+      } else {
+        nextRunAt = currentTime;
+      }
+    }
+
+    const [trigger] = await db
+      .update(automationTriggers)
+      .set({
+        kind: request.kind,
+        cronExpression:
+          request.kind === "cron" ? request.cronExpression : null,
+        atTime: request.kind === "once" ? new Date(request.atTime) : null,
+        intervalSeconds:
+          request.kind === "loop" ? request.intervalSeconds : null,
+        timezone,
+        nextRunAt,
+        consecutiveFailures: 0,
+        updatedAt: currentTime,
+      })
+      .where(eq(automationTriggers.id, owned.trigger.id))
+      .returning();
+    signal.throwIfAborted();
+    if (!trigger) {
+      return { kind: "not_found" };
+    }
+
+    await publishChatThreadAutomationsChangedSafely(
+      args.userId,
+      owned.automation.chatThreadId,
+    );
+    signal.throwIfAborted();
+
+    return { kind: "ok", trigger };
   },
 );
 

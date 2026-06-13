@@ -972,6 +972,197 @@ describe("Automations API", () => {
     );
   });
 
+  describe("trigger update", () => {
+    it("updates a cron trigger's expression in place", async () => {
+      const fixture = await seedFixture();
+      await enableWebhookTriggers(fixture);
+
+      const created = await createAutomation({
+        name: "cron-updatable",
+        agentId: fixture.composeId,
+        trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+      });
+      const originalTrigger = created.automation.triggers[0];
+
+      const result = await accept(
+        triggerApi().update({
+          params: { id: originalTrigger.id },
+          headers: SESSION_HEADERS,
+          body: {
+            kind: "cron",
+            cronExpression: "30 8 * * 1-5",
+            timezone: "America/New_York",
+          },
+        }),
+        [200],
+      );
+
+      const updated = result.body.trigger;
+      expect(updated.id).toBe(originalTrigger.id);
+      expect(updated.kind).toBe("cron");
+      expect(
+        updated.kind === "cron" ? updated.cronExpression : "",
+      ).toBe("30 8 * * 1-5");
+      expect(updated.timezone).toBe("America/New_York");
+      expect(updated.consecutiveFailures).toBe(0);
+
+      // Verify the row in the database.
+      const [row] = await findTriggerRows(originalTrigger.automationId);
+      expect(row?.kind).toBe("cron");
+      expect(row?.cronExpression).toBe("30 8 * * 1-5");
+      expect(row?.timezone).toBe("America/New_York");
+      expect(row?.consecutiveFailures).toBe(0);
+      expect(row?.nextRunAt).not.toBeNull();
+    });
+
+    it("switches a loop trigger to cron in place", async () => {
+      const fixture = await seedFixture();
+      await enableWebhookTriggers(fixture);
+
+      const created = await createAutomation({
+        name: "loop-to-cron",
+        agentId: fixture.composeId,
+        trigger: { kind: "loop", intervalSeconds: 900 },
+      });
+      const originalTrigger = created.automation.triggers[0];
+
+      const result = await accept(
+        triggerApi().update({
+          params: { id: originalTrigger.id },
+          headers: SESSION_HEADERS,
+          body: { kind: "cron", cronExpression: "0 12 * * *" },
+        }),
+        [200],
+      );
+
+      const updated = result.body.trigger;
+      expect(updated.id).toBe(originalTrigger.id);
+      expect(updated.kind).toBe("cron");
+
+      // The old loop columns must be nulled to satisfy the CHECK constraint.
+      const [row] = await findTriggerRows(originalTrigger.automationId);
+      expect(row?.kind).toBe("cron");
+      expect(row?.cronExpression).toBe("0 12 * * *");
+      expect(row?.intervalSeconds).toBeNull();
+      expect(row?.atTime).toBeNull();
+    });
+
+    it("updates a once trigger's atTime in place", async () => {
+      const fixture = await seedFixture();
+      await enableWebhookTriggers(fixture);
+
+      const futureDate = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+      const laterDate = new Date(futureDate.getTime() + 24 * 3600 * 1000);
+
+      const created = await createAutomation({
+        name: "once-updatable",
+        agentId: fixture.composeId,
+        trigger: { kind: "once", atTime: futureDate.toISOString() },
+      });
+      const originalTrigger = created.automation.triggers[0];
+
+      const result = await accept(
+        triggerApi().update({
+          params: { id: originalTrigger.id },
+          headers: SESSION_HEADERS,
+          body: { kind: "once", atTime: laterDate.toISOString() },
+        }),
+        [200],
+      );
+
+      expect(result.body.trigger.id).toBe(originalTrigger.id);
+      expect(result.body.trigger.kind).toBe("once");
+    });
+
+    it("rejects updating a webhook trigger", async () => {
+      const fixture = await seedFixture();
+      await enableWebhookTriggers(fixture);
+
+      const created = await createAutomation({
+        name: "webhook-immutable",
+        agentId: fixture.composeId,
+        trigger: { kind: "webhook" },
+      });
+      const webhookTrigger = created.automation.triggers[0];
+
+      await accept(
+        triggerApi().update({
+          params: { id: webhookTrigger.id },
+          headers: SESSION_HEADERS,
+          body: { kind: "cron", cronExpression: "0 9 * * *" },
+        }),
+        [400],
+      );
+    });
+
+    it("rejects an invalid cron expression and a past atTime", async () => {
+      const fixture = await seedFixture();
+      await enableWebhookTriggers(fixture);
+
+      const created = await createAutomation({
+        name: "bad-update",
+        agentId: fixture.composeId,
+        trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+      });
+      const triggerId = created.automation.triggers[0].id;
+
+      await accept(
+        triggerApi().update({
+          params: { id: triggerId },
+          headers: SESSION_HEADERS,
+          body: { kind: "cron", cronExpression: "not-a-cron" },
+        }),
+        [400],
+      );
+
+      await accept(
+        triggerApi().update({
+          params: { id: triggerId },
+          headers: SESSION_HEADERS,
+          body: { kind: "once", atTime: "2020-01-01T00:00:00Z" },
+        }),
+        [400],
+      );
+    });
+
+    it("returns 404 for a nonexistent or cross-org trigger", async () => {
+      const fixture = await seedFixture();
+      await enableWebhookTriggers(fixture);
+
+      const nonexistentId = "00000000-0000-4000-8000-000000000000";
+      await accept(
+        triggerApi().update({
+          params: { id: nonexistentId },
+          headers: SESSION_HEADERS,
+          body: { kind: "loop", intervalSeconds: 60 },
+        }),
+        [404],
+      );
+
+      // Create a trigger in another org, then try to update with different auth.
+      const otherFixture = await trackAutomations(
+        store.set(seedAutomationsScenario$, { automations: [] }, context.signal),
+      );
+      const otherCreated = await createAutomation({
+        name: "cross-org",
+        agentId: otherFixture.composeId,
+        trigger: { kind: "cron", cronExpression: "0 6 * * *" },
+      });
+
+      // Switch auth back to the first org and try to update the other org's
+      // trigger — it should be not found.
+      mocks.clerk.session(fixture.userId, fixture.orgId);
+      await accept(
+        triggerApi().update({
+          params: { id: otherCreated.automation.triggers[0].id },
+          headers: SESSION_HEADERS,
+          body: { kind: "cron", cronExpression: "0 7 * * *" },
+        }),
+        [404],
+      );
+    });
+  });
+
   it("returns 401 when unauthenticated", async () => {
     const response = await accept(mainApi().list({ headers: {} }), [401]);
     expect(response.body.error.code).toBe("UNAUTHORIZED");

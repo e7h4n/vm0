@@ -82,6 +82,28 @@ export const automationListResponseSchema = z.object({
 });
 
 /**
+ * Trigger update input: the kind plus exactly its own config. Webhook triggers
+ * are excluded — schedule updates go through the dedicated time-trigger update
+ * path only.
+ */
+export const updateTriggerRequestSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    cronExpression: z.string().min(1),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("once"),
+    atTime: z.string().min(1),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("loop"),
+    intervalSeconds: z.number().int().positive(),
+  }),
+]);
+
+/**
  * Trigger creation input: the kind plus exactly its own config. Webhook
  * triggers mint their token + HMAC secret server-side.
  */
@@ -365,6 +387,21 @@ export const automationTriggersContract = c.router({
     },
     summary: "Disable a single trigger",
   },
+  update: {
+    method: "PATCH",
+    path: "/api/automation-triggers/:id",
+    headers: authHeadersSchema,
+    pathParams: triggerIdParamsSchema,
+    body: updateTriggerRequestSchema,
+    responses: {
+      200: triggerMutationResponseSchema,
+      400: apiErrorSchema,
+      401: apiErrorSchema,
+      403: apiErrorSchema,
+      404: apiErrorSchema,
+    },
+    summary: "Update a time trigger's schedule in place",
+  },
   rotateSecret: {
     method: "POST",
     path: "/api/automation-triggers/:id/rotate-secret",
@@ -391,3 +428,4 @@ export type AutomationTriggerResponse = z.infer<
   typeof automationTriggerResponseSchema
 >;
 export type CreateTriggerRequest = z.infer<typeof createTriggerRequestSchema>;
+export type UpdateTriggerRequest = z.infer<typeof updateTriggerRequestSchema>;
