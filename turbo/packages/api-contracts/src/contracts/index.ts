@@ -1398,12 +1398,14 @@ export {
   triggerMutationResponseSchema,
   automationRunResponseSchema,
   createTriggerRequestSchema,
+  updateTriggerScheduleRequestSchema,
   type AutomationsMainContract,
   type AutomationsByRefContract,
   type AutomationTriggersContract,
   type AutomationResponse,
   type AutomationTriggerResponse,
   type CreateTriggerRequest,
+  type UpdateTriggerScheduleRequest,
 } from "./automations";
 export {
   internalCallbacksTriggerContract,

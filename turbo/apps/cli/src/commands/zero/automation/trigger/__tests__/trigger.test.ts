@@ -304,6 +304,115 @@ describe("zero automation trigger commands", () => {
     });
   });
 
+  describe("update", () => {
+    function captureUpdateTrigger(response: object) {
+      const captured: { id?: string; body?: Record<string, unknown> } = {};
+      server.use(
+        http.patch(
+          "http://localhost:3000/api/automation-triggers/:id",
+          async ({ request, params }) => {
+            captured.id = params.id as string;
+            captured.body = (await request.json()) as Record<string, unknown>;
+            return HttpResponse.json(response);
+          },
+        ),
+      );
+      return captured;
+    }
+
+    it("should reschedule to cron with --expr and --timezone", async () => {
+      const captured = captureUpdateTrigger(cronTrigger);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--expr",
+        "0 9 * * *",
+        "--timezone",
+        "UTC",
+      ]);
+
+      expect(captured.id).toBe(TRIGGER_ID);
+      expect(captured.body).toEqual({
+        kind: "cron",
+        cronExpression: "0 9 * * *",
+        timezone: "UTC",
+      });
+
+      const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(logCalls).toContain(`Trigger ${TRIGGER_ID} updated`);
+      expect(logCalls).toContain("0 9 * * *");
+    });
+
+    it("should switch a trigger to loop via --every", async () => {
+      const captured = captureUpdateTrigger(loopTrigger);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--every",
+        "15m",
+      ]);
+
+      expect(captured.body).toEqual({ kind: "loop", intervalSeconds: 900 });
+    });
+
+    it("should reject when no schedule flag is given", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync(["node", "cli", "update", TRIGGER_ID]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Provide one schedule flag"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should reject conflicting schedule flags", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--expr",
+          "0 9 * * *",
+          "--every",
+          "15m",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Use at most one of --expr, --at, --every"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should reject --timezone with a loop schedule", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--every",
+          "15m",
+          "--timezone",
+          "UTC",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("--timezone only applies"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
+
   describe("rm", () => {
     it("should remove a trigger", async () => {
       let removedId: string | undefined;
