@@ -105,6 +105,27 @@ export const createTriggerRequestSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/**
+ * Trigger schedule update input: replaces a time trigger's config in place.
+ * Webhook triggers cannot be updated through this path.
+ */
+export const updateTriggerRequestSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    cronExpression: z.string().min(1),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("once"),
+    atTime: z.string().min(1),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("loop"),
+    intervalSeconds: z.number().int().positive(),
+  }),
+]);
+
 const createAutomationRequestSchema = z.object({
   name: z.string().min(1).max(64, "Automation name max 64 chars"),
   agentId: z.string().uuid("Invalid agent ID"),
@@ -323,6 +344,21 @@ export const automationTriggersContract = c.router({
     },
     summary: "Show a trigger",
   },
+  update: {
+    method: "PATCH",
+    path: "/api/automation-triggers/:id",
+    headers: authHeadersSchema,
+    pathParams: triggerIdParamsSchema,
+    body: updateTriggerRequestSchema,
+    responses: {
+      200: triggerMutationResponseSchema,
+      400: apiErrorSchema,
+      401: apiErrorSchema,
+      403: apiErrorSchema,
+      404: apiErrorSchema,
+    },
+    summary: "Update a time trigger's schedule in place",
+  },
   remove: {
     method: "DELETE",
     path: "/api/automation-triggers/:id",
@@ -391,3 +427,4 @@ export type AutomationTriggerResponse = z.infer<
   typeof automationTriggerResponseSchema
 >;
 export type CreateTriggerRequest = z.infer<typeof createTriggerRequestSchema>;
+export type UpdateTriggerRequest = z.infer<typeof updateTriggerRequestSchema>;

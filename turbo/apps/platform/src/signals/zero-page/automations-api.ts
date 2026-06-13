@@ -5,6 +5,7 @@ import {
   type AutomationResponse,
   type AutomationTriggerResponse,
   type CreateTriggerRequest,
+  type UpdateTriggerRequest,
 } from "@vm0/api-contracts/contracts/automations";
 import type { AutomationView } from "@vm0/api-contracts/contracts/automation-view";
 import { accept } from "../../lib/accept.ts";
@@ -72,6 +73,22 @@ function toAutomationView(
 }
 
 function toTriggerRequest(body: AutomationFormBody): CreateTriggerRequest {
+  if ("cronExpression" in body) {
+    return {
+      kind: "cron",
+      cronExpression: body.cronExpression,
+      timezone: body.timezone,
+    };
+  }
+  if ("atTime" in body) {
+    return { kind: "once", atTime: body.atTime, timezone: body.timezone };
+  }
+  return { kind: "loop", intervalSeconds: body.intervalSeconds };
+}
+
+function toTriggerUpdateRequest(
+  body: AutomationFormBody,
+): UpdateTriggerRequest {
   if ("cronExpression" in body) {
     return {
       kind: "cron",
@@ -194,16 +211,26 @@ async function updateAutomation(
     [200],
   );
 
-  // Replace the time trigger when its config changed. The new trigger is
-  // added before the stale one is removed, so a failure in between never
-  // leaves the automation triggerless (a triggerless automation vanishes
-  // from the automation pages); the sweep then also collects duplicates left
-  // behind by an earlier interrupted replacement.
+  // Update the time trigger in place when its config changed. The platform
+  // pages model each automation as having exactly one time trigger, so we
+  // target that trigger directly and preserve its id and runtime history.
   const timeTriggers = existing.triggers.filter(isTimeTrigger);
   const kept = timeTriggers.find((trigger) => {
     return triggerMatches(trigger, body);
   });
-  if (!kept) {
+  let updatedInPlace = false;
+  if (!kept && timeTriggers.length === 1) {
+    await accept(
+      client(automationTriggersContract).update({
+        params: { id: timeTriggers[0].id },
+        body: toTriggerUpdateRequest(body),
+      }),
+      [200],
+    );
+    updatedInPlace = true;
+  } else if (!kept) {
+    // Fallback for zero or multiple time triggers: add the new trigger before
+    // removing stale ones so the automation never becomes triggerless.
     await accept(
       client(automationsByRefContract).addTrigger({
         params: { ref: existing.id },
@@ -213,7 +240,7 @@ async function updateAutomation(
     );
   }
   for (const stale of timeTriggers) {
-    if (stale !== kept) {
+    if (stale !== kept && !updatedInPlace) {
       await accept(
         client(automationTriggersContract).remove({
           params: { id: stale.id },

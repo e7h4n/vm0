@@ -1,5 +1,8 @@
 import { command } from "ccstate";
-import type { CreateTriggerRequest } from "@vm0/api-contracts/contracts/automations";
+import type {
+  CreateTriggerRequest,
+  UpdateTriggerRequest,
+} from "@vm0/api-contracts/contracts/automations";
 import { agentRuns } from "@vm0/db/schema/agent-run";
 import { automations, automationTriggers } from "@vm0/db/schema/automation";
 import { chatThreads } from "@vm0/db/schema/chat-thread";
@@ -1062,6 +1065,78 @@ export const setTriggerEnabled$ = command(
       .set({
         enabled: args.enabled,
         ...recomputedState,
+        updatedAt: currentTime,
+      })
+      .where(eq(automationTriggers.id, owned.trigger.id))
+      .returning();
+    signal.throwIfAborted();
+    if (!trigger) {
+      return { kind: "not_found" };
+    }
+
+    await publishChatThreadAutomationsChangedSafely(
+      args.userId,
+      owned.automation.chatThreadId,
+    );
+    signal.throwIfAborted();
+
+    return { kind: "ok", trigger };
+  },
+);
+
+/**
+ * Update a time trigger's schedule in place. The trigger row identity
+ * (id, automationId, createdAt), ownership, enabled flag, and runtime history
+ * (lastRunAt, lastRunId) are preserved; the kind-specific config and next run
+ * are recomputed using the same rules as trigger creation/re-enable, and
+ * consecutiveFailures is reset to zero. Webhook triggers are rejected.
+ */
+export const updateTrigger$ = command(
+  async (
+    { set },
+    args: {
+      readonly userId: string;
+      readonly orgId: string;
+      readonly id: string;
+      readonly request: UpdateTriggerRequest;
+    },
+    signal: AbortSignal,
+  ): Promise<TriggerMutationResult> => {
+    const db = set(writeDb$);
+    const owned = await loadOwnedTrigger(db, args);
+    signal.throwIfAborted();
+    if (!owned) {
+      return { kind: "not_found" };
+    }
+    if (owned.trigger.kind === "webhook") {
+      return {
+        kind: "bad_request",
+        message: "Webhook triggers cannot be updated through this path",
+      };
+    }
+
+    const currentTime = nowDate();
+    const resolved = await resolveTriggerInsert({
+      request: args.request,
+      automationEnabled: owned.automation.enabled,
+      currentTime,
+    });
+    signal.throwIfAborted();
+    if (resolved.kind === "bad_request") {
+      return resolved;
+    }
+
+    const insertValues = resolved.insert.values;
+    const [trigger] = await db
+      .update(automationTriggers)
+      .set({
+        kind: insertValues.kind,
+        cronExpression: insertValues.cronExpression ?? null,
+        atTime: insertValues.atTime ?? null,
+        intervalSeconds: insertValues.intervalSeconds ?? null,
+        timezone: insertValues.timezone,
+        nextRunAt: insertValues.nextRunAt,
+        consecutiveFailures: 0,
         updatedAt: currentTime,
       })
       .where(eq(automationTriggers.id, owned.trigger.id))

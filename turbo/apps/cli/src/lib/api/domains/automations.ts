@@ -9,6 +9,7 @@ import type {
   AutomationResponse,
   AutomationTriggerResponse,
   CreateTriggerRequest,
+  UpdateTriggerRequest,
 } from "@vm0/api-contracts/contracts/automations";
 
 /**
@@ -224,6 +225,25 @@ export async function showAutomationTrigger(
   }
 
   handleError(result, `Trigger not found: ${id}`);
+}
+
+/**
+ * Update a time trigger's schedule in place
+ */
+export async function updateAutomationTrigger(
+  id: string,
+  body: UpdateTriggerRequest,
+): Promise<{ trigger: AutomationTriggerResponse }> {
+  const config = await getClientConfig();
+  const client = initClient(automationTriggersContract, config);
+
+  const result = await client.update({ params: { id }, body });
+
+  if (result.status === 200) {
+    return { trigger: result.body.trigger };
+  }
+
+  handleError(result, `Failed to update trigger ${id}`);
 }
 
 /**
