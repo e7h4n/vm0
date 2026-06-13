@@ -4,7 +4,7 @@ import {
   automationTriggersContract,
   type AutomationResponse,
   type AutomationTriggerResponse,
-  type CreateTriggerRequest,
+  type UpdateTriggerRequest,
 } from "@vm0/api-contracts/contracts/automations";
 import type { AutomationView } from "@vm0/api-contracts/contracts/automation-view";
 import { accept } from "../../lib/accept.ts";
@@ -71,7 +71,7 @@ function toAutomationView(
   };
 }
 
-function toTriggerRequest(body: AutomationFormBody): CreateTriggerRequest {
+function toTriggerRequest(body: AutomationFormBody): UpdateTriggerRequest {
   if ("cronExpression" in body) {
     return {
       kind: "cron",
@@ -194,16 +194,22 @@ async function updateAutomation(
     [200],
   );
 
-  // Replace the time trigger when its config changed. The new trigger is
-  // added before the stale one is removed, so a failure in between never
-  // leaves the automation triggerless (a triggerless automation vanishes
-  // from the automation pages); the sweep then also collects duplicates left
-  // behind by an earlier interrupted replacement.
+  // Update the primary time trigger in place when its config changed. If an
+  // older interrupted replacement left duplicates behind, keep the first
+  // trigger's identity stable and sweep the rest.
   const timeTriggers = existing.triggers.filter(isTimeTrigger);
-  const kept = timeTriggers.find((trigger) => {
-    return triggerMatches(trigger, body);
-  });
-  if (!kept) {
+  const [primaryTrigger, ...staleTriggers] = timeTriggers;
+  if (primaryTrigger) {
+    if (!triggerMatches(primaryTrigger, body)) {
+      await accept(
+        client(automationTriggersContract).update({
+          params: { id: primaryTrigger.id },
+          body: toTriggerRequest(body),
+        }),
+        [200],
+      );
+    }
+  } else {
     await accept(
       client(automationsByRefContract).addTrigger({
         params: { ref: existing.id },
@@ -212,15 +218,13 @@ async function updateAutomation(
       [201],
     );
   }
-  for (const stale of timeTriggers) {
-    if (stale !== kept) {
-      await accept(
-        client(automationTriggersContract).remove({
-          params: { id: stale.id },
-        }),
-        [204],
-      );
-    }
+  for (const stale of staleTriggers) {
+    await accept(
+      client(automationTriggersContract).remove({
+        params: { id: stale.id },
+      }),
+      [204],
+    );
   }
 
   return { id: existing.id, created: false };

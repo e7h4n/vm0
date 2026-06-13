@@ -742,6 +742,105 @@ describe("Automations API", () => {
     expect(expired.body.error.message).toContain("already passed");
   });
 
+  it("updates a time trigger schedule in place", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "in-place-trigger-update",
+      agentId: fixture.composeId,
+      trigger: { kind: "cron", cronExpression: "0 9 * * *" },
+    });
+    const [createdTrigger] = created.automation.triggers;
+    if (createdTrigger?.kind !== "cron") {
+      throw new Error("Expected a cron trigger");
+    }
+
+    const historyTime = new Date("2026-06-05T12:00:00.000Z");
+    const db = store.set(writeDb$);
+    await db
+      .update(automationTriggers)
+      .set({ lastRunAt: historyTime, consecutiveFailures: 2 })
+      .where(eq(automationTriggers.id, createdTrigger.id));
+
+    context.mocks.ably.publish.mockClear();
+    const updated = await accept(
+      triggerApi().update({
+        headers: SESSION_HEADERS,
+        params: { id: createdTrigger.id },
+        body: { kind: "loop", intervalSeconds: 900 },
+      }),
+      [200],
+    );
+
+    expect(updated.body.id).toBe(createdTrigger.id);
+    expect(updated.body.kind).toBe("loop");
+    if (updated.body.kind !== "loop") {
+      throw new Error("Expected a loop trigger");
+    }
+    expect(updated.body.intervalSeconds).toBe(900);
+    expect(updated.body.consecutiveFailures).toBe(0);
+    expect(updated.body.lastRunAt).toBe(historyTime.toISOString());
+    expect(updated.body.nextRunAt).not.toBeNull();
+    expect(context.mocks.ably.publish).toHaveBeenCalledWith(
+      `chatThreadAutomationsChanged:${created.automation.chatThreadId}`,
+      null,
+    );
+
+    const rows = await findTriggerRows(created.automation.id);
+    expect(rows).toHaveLength(1);
+    const [stored] = rows;
+    if (!stored) {
+      throw new Error("Expected the updated trigger row");
+    }
+    expect(stored).toMatchObject({
+      id: createdTrigger.id,
+      kind: "loop",
+      cronExpression: null,
+      atTime: null,
+      intervalSeconds: 900,
+      timezone: "UTC",
+      consecutiveFailures: 0,
+      lastRunAt: historyTime,
+    });
+  });
+
+  it("rejects schedule updates for webhook or missing triggers", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "webhook-schedule-update",
+      agentId: fixture.composeId,
+      trigger: { kind: "webhook" },
+    });
+    const [webhookTrigger] = created.automation.triggers;
+    if (webhookTrigger?.kind !== "webhook") {
+      throw new Error("Expected a webhook trigger");
+    }
+
+    const webhookUpdate = await accept(
+      triggerApi().update({
+        headers: SESSION_HEADERS,
+        params: { id: webhookTrigger.id },
+        body: { kind: "cron", cronExpression: "0 10 * * *" },
+      }),
+      [400],
+    );
+    expect(webhookUpdate.body.error.code).toBe("BAD_REQUEST");
+    expect(webhookUpdate.body.error.message).toContain("Webhook triggers");
+
+    const missing = await accept(
+      triggerApi().update({
+        headers: SESSION_HEADERS,
+        params: { id: randomUUID() },
+        body: { kind: "loop", intervalSeconds: 60 },
+      }),
+      [404],
+    );
+    expect(missing.body.error.code).toBe("NOT_FOUND");
+  });
+
   it("manually fires an automation: chat callback only, automation-only provenance", async () => {
     const fixture = await seedFixture();
     await enableWebhookTriggers(fixture);

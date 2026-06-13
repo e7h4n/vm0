@@ -105,6 +105,23 @@ export const createTriggerRequestSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const updateTriggerRequestSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    cronExpression: z.string().min(1),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("once"),
+    atTime: z.string().min(1),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("loop"),
+    intervalSeconds: z.number().int().positive(),
+  }),
+]);
+
 const createAutomationRequestSchema = z.object({
   name: z.string().min(1).max(64, "Automation name max 64 chars"),
   agentId: z.string().uuid("Invalid agent ID"),
@@ -336,6 +353,21 @@ export const automationTriggersContract = c.router({
     },
     summary: "Remove a trigger",
   },
+  update: {
+    method: "PATCH",
+    path: "/api/automation-triggers/:id",
+    headers: authHeadersSchema,
+    pathParams: triggerIdParamsSchema,
+    body: updateTriggerRequestSchema,
+    responses: {
+      200: automationTriggerResponseSchema,
+      400: apiErrorSchema,
+      401: apiErrorSchema,
+      403: apiErrorSchema,
+      404: apiErrorSchema,
+    },
+    summary: "Update a time trigger schedule in place",
+  },
   enable: {
     method: "POST",
     path: "/api/automation-triggers/:id/enable",
@@ -391,3 +423,4 @@ export type AutomationTriggerResponse = z.infer<
   typeof automationTriggerResponseSchema
 >;
 export type CreateTriggerRequest = z.infer<typeof createTriggerRequestSchema>;
+export type UpdateTriggerRequest = z.infer<typeof updateTriggerRequestSchema>;

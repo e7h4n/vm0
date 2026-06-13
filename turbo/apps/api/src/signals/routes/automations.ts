@@ -25,6 +25,7 @@ import {
   showAutomation$,
   showTrigger$,
   updateAutomation$,
+  updateTriggerSchedule$,
   type AutomationTriggerRow,
   type AutomationView,
 } from "../services/automations.service";
@@ -429,6 +430,40 @@ const removeTriggerInner$ = command(
   },
 );
 
+const updateTriggerInner$ = command(
+  async ({ get, set }, signal: AbortSignal) => {
+    const auth = get(organizationAuthContext$);
+    const params = get(pathParamsOf(automationTriggersContract.update));
+    const bodyResult = await get(
+      bodyResultOf(automationTriggersContract.update),
+    );
+    signal.throwIfAborted();
+    if (!bodyResult.ok) {
+      return bodyResult.response;
+    }
+
+    const result = await set(
+      updateTriggerSchedule$,
+      {
+        userId: auth.userId,
+        orgId: auth.orgId,
+        id: params.id,
+        request: bodyResult.data,
+      },
+      signal,
+    );
+    signal.throwIfAborted();
+
+    if (result.kind === "not_found" || result.kind === "ambiguous") {
+      return notFound(NOT_FOUND_MESSAGE);
+    }
+    if (result.kind === "bad_request") {
+      return badRequestMessage(result.message);
+    }
+    return { status: 200 as const, body: triggerResponse(result.trigger) };
+  },
+);
+
 function makeSetTriggerEnabledInner(enabled: boolean) {
   return command(async ({ get, set }, signal: AbortSignal) => {
     const auth = get(organizationAuthContext$);
@@ -618,6 +653,17 @@ export const automationsRoutes: readonly RouteEntry[] = [
         requiredCapability: "automation:delete",
       },
       removeTriggerInner$,
+    ),
+  },
+  {
+    route: automationTriggersContract.update,
+    handler: authRoute(
+      {
+        requireOrganization: true,
+        missingOrganizationStatus: 401,
+        requiredCapability: "automation:write",
+      },
+      updateTriggerInner$,
     ),
   },
   {

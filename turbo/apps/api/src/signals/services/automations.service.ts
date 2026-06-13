@@ -1,5 +1,8 @@
 import { command } from "ccstate";
-import type { CreateTriggerRequest } from "@vm0/api-contracts/contracts/automations";
+import type {
+  CreateTriggerRequest,
+  UpdateTriggerRequest,
+} from "@vm0/api-contracts/contracts/automations";
 import { agentRuns } from "@vm0/db/schema/agent-run";
 import { automations, automationTriggers } from "@vm0/db/schema/automation";
 import { chatThreads } from "@vm0/db/schema/chat-thread";
@@ -243,6 +246,111 @@ async function resolveTriggerInsert(args: {
     insert: {
       values: { kind: "webhook", webhookToken, encryptedSecret, ...timestamps },
       webhookSecret: secret,
+    },
+  };
+}
+
+interface ResolvedTriggerScheduleUpdate {
+  readonly values: {
+    readonly kind: "cron" | "once" | "loop";
+    readonly cronExpression: string | null;
+    readonly atTime: Date | null;
+    readonly intervalSeconds: number | null;
+    readonly timezone: string;
+    readonly nextRunAt: Date | null;
+    readonly consecutiveFailures: 0;
+    readonly updatedAt: Date;
+  };
+}
+
+type TriggerScheduleUpdateResult =
+  | { readonly kind: "ok"; readonly update: ResolvedTriggerScheduleUpdate }
+  | { readonly kind: "bad_request"; readonly message: string };
+
+async function resolveTriggerScheduleUpdate(args: {
+  readonly request: UpdateTriggerRequest;
+  readonly automationEnabled: boolean;
+  readonly currentTime: Date;
+}): Promise<TriggerScheduleUpdateResult> {
+  const { request, currentTime } = args;
+
+  if (request.kind === "cron" || request.kind === "once") {
+    const timezone = request.timezone ?? "UTC";
+    if (!isValidTimeZone(timezone)) {
+      return { kind: "bad_request", message: `Invalid timezone: ${timezone}` };
+    }
+    if (request.kind === "cron") {
+      const next = await nextCronOccurrence(
+        request.cronExpression,
+        timezone,
+        currentTime,
+      );
+      if (!next) {
+        return {
+          kind: "bad_request",
+          message: `Invalid cron expression: ${request.cronExpression}`,
+        };
+      }
+      return {
+        kind: "ok",
+        update: {
+          values: {
+            kind: "cron",
+            cronExpression: request.cronExpression,
+            atTime: null,
+            intervalSeconds: null,
+            timezone,
+            nextRunAt: args.automationEnabled ? next : null,
+            consecutiveFailures: 0,
+            updatedAt: currentTime,
+          },
+        },
+      };
+    }
+
+    const atTime = new Date(request.atTime);
+    if (Number.isNaN(atTime.getTime())) {
+      return {
+        kind: "bad_request",
+        message: `Invalid atTime: ${request.atTime}`,
+      };
+    }
+    if (atTime <= currentTime) {
+      return {
+        kind: "bad_request",
+        message: `Cannot update the trigger: time ${atTime.toISOString()} has already passed`,
+      };
+    }
+    return {
+      kind: "ok",
+      update: {
+        values: {
+          kind: "once",
+          cronExpression: null,
+          atTime,
+          intervalSeconds: null,
+          timezone,
+          nextRunAt: atTime,
+          consecutiveFailures: 0,
+          updatedAt: currentTime,
+        },
+      },
+    };
+  }
+
+  return {
+    kind: "ok",
+    update: {
+      values: {
+        kind: "loop",
+        cronExpression: null,
+        atTime: null,
+        intervalSeconds: request.intervalSeconds,
+        timezone: "UTC",
+        nextRunAt: currentTime,
+        consecutiveFailures: 0,
+        updatedAt: currentTime,
+      },
     },
   };
 }
@@ -1007,6 +1115,68 @@ export const removeTrigger$ = command(
     signal.throwIfAborted();
 
     return { kind: "ok" };
+  },
+);
+
+/**
+ * Update a time trigger's schedule in place. The trigger row id, ownership, and
+ * historical runtime columns are preserved; kind-specific schedule columns are
+ * replaced atomically, `nextRunAt` is recomputed with create/enable semantics,
+ * and a successful update clears the consecutive-failure counter. Webhook
+ * triggers are intentionally excluded because their identity is URL-token
+ * based, not schedule based.
+ */
+export const updateTriggerSchedule$ = command(
+  async (
+    { set },
+    args: {
+      readonly userId: string;
+      readonly orgId: string;
+      readonly id: string;
+      readonly request: UpdateTriggerRequest;
+    },
+    signal: AbortSignal,
+  ): Promise<TriggerMutationResult> => {
+    const db = set(writeDb$);
+    const owned = await loadOwnedTrigger(db, args);
+    signal.throwIfAborted();
+    if (!owned) {
+      return { kind: "not_found" };
+    }
+    if (owned.trigger.kind === "webhook") {
+      return {
+        kind: "bad_request",
+        message: "Webhook triggers cannot be updated through the schedule path",
+      };
+    }
+
+    const resolved = await resolveTriggerScheduleUpdate({
+      request: args.request,
+      automationEnabled: owned.automation.enabled,
+      currentTime: nowDate(),
+    });
+    signal.throwIfAborted();
+    if (resolved.kind === "bad_request") {
+      return resolved;
+    }
+
+    const [trigger] = await db
+      .update(automationTriggers)
+      .set(resolved.update.values)
+      .where(eq(automationTriggers.id, owned.trigger.id))
+      .returning();
+    signal.throwIfAborted();
+    if (!trigger) {
+      return { kind: "not_found" };
+    }
+
+    await publishChatThreadAutomationsChangedSafely(
+      args.userId,
+      owned.automation.chatThreadId,
+    );
+    signal.throwIfAborted();
+
+    return { kind: "ok", trigger };
   },
 );
 
