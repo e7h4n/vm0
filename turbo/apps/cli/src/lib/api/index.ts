@@ -178,6 +178,7 @@ export {
   listAutomationTriggers,
   showAutomationTrigger,
   removeAutomationTrigger,
+  updateAutomationTrigger,
   enableAutomationTrigger,
   disableAutomationTrigger,
   rotateAutomationTriggerSecret,

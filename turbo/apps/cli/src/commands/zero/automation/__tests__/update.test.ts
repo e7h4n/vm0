@@ -29,6 +29,34 @@ const mockAutomation = {
   triggers: [],
 };
 
+const mockCronTrigger = {
+  id: "22222222-2222-4222-8222-222222222222",
+  automationId: mockAutomation.id,
+  enabled: true,
+  createdAt: "2026-06-01T00:00:00Z",
+  updatedAt: "2026-06-01T00:00:00Z",
+  kind: "cron",
+  cronExpression: "0 9 * * *",
+  timezone: "UTC",
+  nextRunAt: "2026-06-12T09:00:00Z",
+  lastRunAt: null,
+  consecutiveFailures: 0,
+};
+
+const mockLoopTrigger = {
+  id: mockCronTrigger.id,
+  automationId: mockAutomation.id,
+  enabled: true,
+  createdAt: "2026-06-01T00:00:00Z",
+  updatedAt: "2026-06-01T00:00:00Z",
+  kind: "loop",
+  intervalSeconds: 900,
+  timezone: "UTC",
+  nextRunAt: "2026-06-12T09:00:00Z",
+  lastRunAt: null,
+  consecutiveFailures: 0,
+};
+
 describe("zero automation update command", () => {
   const mockExit = vi.spyOn(process, "exit").mockImplementation((() => {
     throw new Error("process.exit called");
@@ -86,6 +114,102 @@ describe("zero automation update command", () => {
 
     const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
     expect(logCalls).toContain('Automation "alerts-v2" updated');
+  });
+
+  it("should update a single time trigger schedule in place", async () => {
+    let capturedRef: string | undefined;
+    let capturedTriggerId: string | undefined;
+    let capturedTriggerBody: Record<string, unknown> | undefined;
+
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", ({ params }) => {
+        capturedRef = params.ref as string;
+        return HttpResponse.json({
+          ...mockAutomation,
+          triggers: [mockCronTrigger],
+        });
+      }),
+      http.patch(
+        "http://localhost:3000/api/automation-triggers/:id",
+        async ({ request, params }) => {
+          capturedTriggerId = params.id as string;
+          capturedTriggerBody = (await request.json()) as Record<
+            string,
+            unknown
+          >;
+          return HttpResponse.json(mockLoopTrigger);
+        },
+      ),
+    );
+
+    await updateCommand.parseAsync(["node", "cli", "alerts", "--every", "15m"]);
+
+    expect(capturedRef).toBe("alerts");
+    expect(capturedTriggerId).toBe(mockCronTrigger.id);
+    expect(capturedTriggerBody).toEqual({
+      kind: "loop",
+      intervalSeconds: 900,
+    });
+
+    const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+    expect(logCalls).toContain('Automation "alerts-v2" updated');
+    expect(logCalls).toContain(mockCronTrigger.id);
+    expect(logCalls).toMatch(/Every:\s+15m/);
+  });
+
+  it("should reject schedule sugar when there is no time trigger", async () => {
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json(mockAutomation);
+      }),
+    );
+
+    await expect(async () => {
+      await updateCommand.parseAsync([
+        "node",
+        "cli",
+        "alerts",
+        "--every",
+        "15m",
+      ]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("has no time triggers"),
+    );
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("zero automation trigger update <trigger-id>"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("should reject schedule sugar when there are multiple time triggers", async () => {
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json({
+          ...mockAutomation,
+          triggers: [mockCronTrigger, mockLoopTrigger],
+        });
+      }),
+    );
+
+    await expect(async () => {
+      await updateCommand.parseAsync([
+        "node",
+        "cli",
+        "alerts",
+        "--expr",
+        "0 10 * * *",
+      ]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("has multiple time triggers"),
+    );
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("zero automation trigger update <trigger-id>"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it("should reject when no update flags are given", async () => {
