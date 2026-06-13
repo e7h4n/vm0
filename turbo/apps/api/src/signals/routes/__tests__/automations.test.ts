@@ -742,6 +742,97 @@ describe("Automations API", () => {
     expect(expired.body.error.message).toContain("already passed");
   });
 
+  it("updates a time trigger's schedule in place, preserving identity and history", async () => {
+    const fixture = await seedFixture();
+
+    const created = await createAutomation({
+      name: "in-place",
+      agentId: fixture.composeId,
+      trigger: { kind: "loop", intervalSeconds: 900 },
+    });
+    const trigger = created.automation.triggers[0]!;
+    expect(trigger.kind).toBe("loop");
+
+    // Stamp prior runtime history + a failure streak on the row so we can show
+    // the update keeps the history but clears the streak.
+    const db = store.set(writeDb$);
+    await db
+      .update(automationTriggers)
+      .set({ consecutiveFailures: 2, lastRunAt: new Date(now() - 60_000) })
+      .where(eq(automationTriggers.id, trigger.id));
+
+    const updated = await accept(
+      triggerApi().update({
+        params: { id: trigger.id },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *", timezone: "UTC" },
+      }),
+      [200],
+    );
+    if (updated.body.kind !== "cron") {
+      throw new Error("Expected a cron trigger");
+    }
+    // Same row, switched kind, recomputed next run, reset failures, kept history.
+    expect(updated.body.id).toBe(trigger.id);
+    expect(updated.body.cronExpression).toBe("0 9 * * *");
+    expect(updated.body.timezone).toBe("UTC");
+    expect(updated.body.consecutiveFailures).toBe(0);
+    expect(updated.body.lastRunAt).not.toBeNull();
+    expect(Date.parse(updated.body.nextRunAt!)).toBeGreaterThan(now());
+
+    // The DB row keeps its created instant and clears the stale loop column.
+    const [row] = await findTriggerRows(created.automation.id);
+    expect(row!.id).toBe(trigger.id);
+    expect(row!.intervalSeconds).toBeNull();
+    expect(row!.cronExpression).toBe("0 9 * * *");
+    expect(row!.createdAt.toISOString()).toBe(trigger.createdAt);
+
+    // The same create-time rule rejects a one-time fire in the past.
+    const past = await accept(
+      triggerApi().update({
+        params: { id: trigger.id },
+        headers: SESSION_HEADERS,
+        body: { kind: "once", atTime: new Date(now() - 60_000).toISOString() },
+      }),
+      [400],
+    );
+    expect(past.body.error.message).toContain("already passed");
+
+    // An unknown trigger id is a 404.
+    await accept(
+      triggerApi().update({
+        params: { id: randomUUID() },
+        headers: SESSION_HEADERS,
+        body: { kind: "loop", intervalSeconds: 600 },
+      }),
+      [404],
+    );
+  });
+
+  it("rejects updating a webhook trigger's schedule", async () => {
+    const fixture = await seedFixture();
+    await enableWebhookTriggers(fixture);
+
+    const created = await createAutomation({
+      name: "wh-update",
+      agentId: fixture.composeId,
+      trigger: { kind: "webhook" },
+    });
+    const webhookId = created.automation.triggers[0]!.id;
+
+    const rejected = await accept(
+      triggerApi().update({
+        params: { id: webhookId },
+        headers: SESSION_HEADERS,
+        body: { kind: "cron", cronExpression: "0 9 * * *" },
+      }),
+      [400],
+    );
+    expect(rejected.body.error.message).toContain(
+      "Webhook triggers have no schedule",
+    );
+  });
+
   it("manually fires an automation: chat callback only, automation-only provenance", async () => {
     const fixture = await seedFixture();
     await enableWebhookTriggers(fixture);

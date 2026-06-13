@@ -1,5 +1,8 @@
 import { command } from "ccstate";
-import type { CreateTriggerRequest } from "@vm0/api-contracts/contracts/automations";
+import type {
+  CreateTriggerRequest,
+  UpdateTriggerScheduleRequest,
+} from "@vm0/api-contracts/contracts/automations";
 import { agentRuns } from "@vm0/db/schema/agent-run";
 import { automations, automationTriggers } from "@vm0/db/schema/automation";
 import { chatThreads } from "@vm0/db/schema/chat-thread";
@@ -1062,6 +1065,87 @@ export const setTriggerEnabled$ = command(
       .set({
         enabled: args.enabled,
         ...recomputedState,
+        updatedAt: currentTime,
+      })
+      .where(eq(automationTriggers.id, owned.trigger.id))
+      .returning();
+    signal.throwIfAborted();
+    if (!trigger) {
+      return { kind: "not_found" };
+    }
+
+    await publishChatThreadAutomationsChangedSafely(
+      args.userId,
+      owned.automation.chatThreadId,
+    );
+    signal.throwIfAborted();
+
+    return { kind: "ok", trigger };
+  },
+);
+
+/**
+ * Update a TIME trigger's schedule in place (cron / once / loop). The row
+ * keeps its identity and runtime history (created instant, last run); only the
+ * schedule columns and the derived `nextRunAt` change. The new config is
+ * validated and `nextRunAt` recomputed with the SAME rules trigger creation
+ * applies (a cron schedules only while the automation is enabled, a one-time
+ * fire must be in the future, a loop is due immediately), and
+ * `consecutiveFailures` resets to zero. Switching kinds is allowed; every
+ * time-kind config column is cleared first so the B4 kind/config CHECK
+ * constraint never sees a stale column. Webhook triggers carry no schedule and
+ * are rejected.
+ */
+export const updateTriggerSchedule$ = command(
+  async (
+    { set },
+    args: {
+      readonly userId: string;
+      readonly orgId: string;
+      readonly id: string;
+      readonly request: UpdateTriggerScheduleRequest;
+    },
+    signal: AbortSignal,
+  ): Promise<TriggerMutationResult> => {
+    const db = set(writeDb$);
+    const owned = await loadOwnedTrigger(db, args);
+    signal.throwIfAborted();
+    if (!owned) {
+      return { kind: "not_found" };
+    }
+    if (owned.trigger.kind === "webhook") {
+      return {
+        kind: "bad_request",
+        message: "Webhook triggers have no schedule to update",
+      };
+    }
+
+    const currentTime = nowDate();
+    const resolved = await resolveTriggerInsert({
+      request: args.request,
+      automationEnabled: owned.automation.enabled,
+      currentTime,
+    });
+    signal.throwIfAborted();
+    if (resolved.kind === "bad_request") {
+      return resolved;
+    }
+    const { values } = resolved.insert;
+
+    const [trigger] = await db
+      .update(automationTriggers)
+      .set({
+        // Clear every time-kind config column first so switching kinds (e.g.
+        // loop → cron) never leaves a stale column behind; the resolved values
+        // then set the new kind's own columns and `nextRunAt`.
+        cronExpression: null,
+        atTime: null,
+        intervalSeconds: null,
+        ...values,
+        // Preserve the row's identity instant and reset the failure streak; a
+        // fresh schedule starts from a clean slate.
+        createdAt: owned.trigger.createdAt,
+        consecutiveFailures: 0,
         updatedAt: currentTime,
       })
       .where(eq(automationTriggers.id, owned.trigger.id))

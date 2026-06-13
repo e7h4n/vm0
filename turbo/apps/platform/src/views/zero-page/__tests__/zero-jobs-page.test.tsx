@@ -13,7 +13,10 @@ import {
   zeroAgentsByIdContract,
   zeroAgentsMainContract,
 } from "@vm0/api-contracts/contracts/zero-agents";
-import { automationsByRefContract } from "@vm0/api-contracts/contracts/automations";
+import {
+  automationsByRefContract,
+  automationTriggersContract,
+} from "@vm0/api-contracts/contracts/automations";
 import type { AutomationView } from "@vm0/api-contracts/contracts/automation-view";
 import {
   type TeamComposeItem,
@@ -487,8 +490,11 @@ describe("zero jobs page", () => {
       context.mocks.data.automations(automations);
       return respond(200, toMockAutomationResponse(updated));
     });
+    // The edit flow updates the existing time trigger in place (PATCH), so the
+    // schedule change arrives on the trigger-update contract rather than an
+    // add-then-remove pair.
     context.mocks.api(
-      automationsByRefContract.addTrigger,
+      automationTriggersContract.update,
       ({ body, respond }) => {
         capturedTriggerBody = body;
         const currentAutomation = automations[0];
@@ -496,7 +502,7 @@ describe("zero jobs page", () => {
           throw new Error("automation fixture not found");
         }
         if (body.kind !== "cron") {
-          throw new Error("expected a cron trigger replacement");
+          throw new Error("expected a cron trigger update");
         }
         const updated = createMockAutomationView({
           ...currentAutomation,
@@ -513,9 +519,16 @@ describe("zero jobs page", () => {
         if (!trigger) {
           throw new Error("expected a projected trigger");
         }
-        return respond(201, { trigger });
+        return respond(200, trigger);
       },
     );
+    // The in-place update must not fall back to the old add-then-remove pair.
+    context.mocks.api(automationsByRefContract.addTrigger, () => {
+      throw new Error("addTrigger must not be called for an in-place edit");
+    });
+    context.mocks.api(automationTriggersContract.remove, () => {
+      throw new Error("trigger remove must not be called for an in-place edit");
+    });
 
     detachedSetupPage({ context, path: `/agents/${agentId}?tab=automations` });
 

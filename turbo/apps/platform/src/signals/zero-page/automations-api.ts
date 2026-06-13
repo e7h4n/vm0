@@ -5,6 +5,7 @@ import {
   type AutomationResponse,
   type AutomationTriggerResponse,
   type CreateTriggerRequest,
+  type UpdateTriggerScheduleRequest,
 } from "@vm0/api-contracts/contracts/automations";
 import type { AutomationView } from "@vm0/api-contracts/contracts/automation-view";
 import { accept } from "../../lib/accept.ts";
@@ -71,7 +72,12 @@ function toAutomationView(
   };
 }
 
-function toTriggerRequest(body: AutomationFormBody): CreateTriggerRequest {
+// The form body always describes a time trigger (cron / once / loop), so the
+// schedule request is the narrower shape the in-place trigger update accepts;
+// it widens to a create request for the add path.
+function toScheduleRequest(
+  body: AutomationFormBody,
+): UpdateTriggerScheduleRequest {
   if ("cronExpression" in body) {
     return {
       kind: "cron",
@@ -83,6 +89,10 @@ function toTriggerRequest(body: AutomationFormBody): CreateTriggerRequest {
     return { kind: "once", atTime: body.atTime, timezone: body.timezone };
   }
   return { kind: "loop", intervalSeconds: body.intervalSeconds };
+}
+
+function toTriggerRequest(body: AutomationFormBody): CreateTriggerRequest {
+  return toScheduleRequest(body);
 }
 
 // Whether the existing trigger already matches the requested config — if so,
@@ -194,16 +204,13 @@ async function updateAutomation(
     [200],
   );
 
-  // Replace the time trigger when its config changed. The new trigger is
-  // added before the stale one is removed, so a failure in between never
-  // leaves the automation triggerless (a triggerless automation vanishes
-  // from the automation pages); the sweep then also collects duplicates left
-  // behind by an earlier interrupted replacement.
-  const timeTriggers = existing.triggers.filter(isTimeTrigger);
-  const kept = timeTriggers.find((trigger) => {
-    return triggerMatches(trigger, body);
-  });
-  if (!kept) {
+  // Update the time trigger's schedule in place when its config changed. The
+  // trigger keeps its id and runtime history, and switching kinds (e.g. loop →
+  // cron) is handled server-side — so there is no add-then-remove window that
+  // could duplicate triggers or briefly leave the automation triggerless. An
+  // automation that has no time trigger yet gets one added.
+  const existingTrigger = existing.triggers.find(isTimeTrigger);
+  if (!existingTrigger) {
     await accept(
       client(automationsByRefContract).addTrigger({
         params: { ref: existing.id },
@@ -211,16 +218,14 @@ async function updateAutomation(
       }),
       [201],
     );
-  }
-  for (const stale of timeTriggers) {
-    if (stale !== kept) {
-      await accept(
-        client(automationTriggersContract).remove({
-          params: { id: stale.id },
-        }),
-        [204],
-      );
-    }
+  } else if (!triggerMatches(existingTrigger, body)) {
+    await accept(
+      client(automationTriggersContract).update({
+        params: { id: existingTrigger.id },
+        body: toScheduleRequest(body),
+      }),
+      [200],
+    );
   }
 
   return { id: existing.id, created: false };
