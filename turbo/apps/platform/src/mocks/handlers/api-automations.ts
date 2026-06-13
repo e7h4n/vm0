@@ -5,6 +5,7 @@ import {
   type AutomationResponse,
   type AutomationTriggerResponse,
   type CreateTriggerRequest,
+  type UpdateTriggerRequest,
 } from "@vm0/api-contracts/contracts/automations";
 import type { AutomationView } from "@vm0/api-contracts/contracts/automation-view";
 import { nowDate } from "../../lib/time.ts";
@@ -91,7 +92,7 @@ export function toMockAutomationResponse(
 }
 
 function triggerFields(
-  trigger: CreateTriggerRequest,
+  trigger: CreateTriggerRequest | UpdateTriggerRequest,
 ): Pick<
   AutomationView,
   "triggerType" | "cronExpression" | "atTime" | "intervalSeconds" | "timezone"
@@ -255,6 +256,27 @@ export const apiAutomationsHandlers = [
     currentTriggerIds.delete(row.id);
     replaceRow(updated);
     return respond(201, { trigger: toTrigger(updated) });
+  }),
+
+  // PATCH /api/automation-triggers/:id
+  mockApi(automationTriggersContract.update, ({ params, body, respond }) => {
+    const automationId = automationIdForTrigger(params.id);
+    const row = automationId
+      ? getMockAutomations().find((s) => s.id === automationId)
+      : undefined;
+    if (!row) {
+      return respond(404, {
+        error: { message: "Not found", code: "NOT_FOUND" },
+      });
+    }
+    const updated: AutomationView = {
+      ...row,
+      ...triggerFields(body),
+      consecutiveFailures: 0,
+      updatedAt: nowDate().toISOString(),
+    };
+    replaceRow(updated);
+    return respond(200, { trigger: toTrigger(updated) });
   }),
 
   // DELETE /api/automation-triggers/:id

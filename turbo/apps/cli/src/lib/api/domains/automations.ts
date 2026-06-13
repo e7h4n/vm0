@@ -9,6 +9,7 @@ import type {
   AutomationResponse,
   AutomationTriggerResponse,
   CreateTriggerRequest,
+  UpdateTriggerRequest,
 } from "@vm0/api-contracts/contracts/automations";
 
 /**
@@ -206,6 +207,26 @@ export async function listAutomationTriggers(ref: string): Promise<{
   }
 
   handleError(result, `Failed to list triggers of automation "${ref}"`);
+}
+
+/**
+ * Update a time trigger's schedule in place. Webhook triggers are rejected by
+ * the server — use rotateAutomationTriggerSecret to change webhook secrets.
+ */
+export async function updateAutomationTrigger(
+  id: string,
+  body: UpdateTriggerRequest,
+): Promise<AutomationTriggerResponse> {
+  const config = await getClientConfig();
+  const client = initClient(automationTriggersContract, config);
+
+  const result = await client.update({ params: { id }, body });
+
+  if (result.status === 200) {
+    return result.body.trigger;
+  }
+
+  handleError(result, `Failed to update trigger ${id}`);
 }
 
 /**

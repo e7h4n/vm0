@@ -1,5 +1,8 @@
 import { command } from "ccstate";
-import type { CreateTriggerRequest } from "@vm0/api-contracts/contracts/automations";
+import type {
+  CreateTriggerRequest,
+  UpdateTriggerRequest,
+} from "@vm0/api-contracts/contracts/automations";
 import { agentRuns } from "@vm0/db/schema/agent-run";
 import { automations, automationTriggers } from "@vm0/db/schema/automation";
 import { chatThreads } from "@vm0/db/schema/chat-thread";
@@ -1124,6 +1127,188 @@ export const rotateTriggerSecret$ = command(
     }
 
     return { kind: "ok", trigger, webhookSecret: secret };
+  },
+);
+
+interface TimeTriggerUpdateFields {
+  readonly kind: "cron" | "once" | "loop";
+  readonly cronExpression: string | null;
+  readonly atTime: Date | null;
+  readonly intervalSeconds: number | null;
+  readonly timezone: string;
+  readonly nextRunAt: Date | null;
+}
+
+type TimeTriggerUpdateResult =
+  | { readonly kind: "ok"; readonly fields: TimeTriggerUpdateFields }
+  | { readonly kind: "bad_request"; readonly message: string };
+
+/**
+ * Validate an in-place trigger update request and resolve the column values to
+ * write. Mirrors `resolveTriggerInsert` for time kinds: a cron schedules its
+ * next occurrence (only while the automation is enabled), a one-time trigger
+ * must be in the future, and a loop is due immediately. Old kind's config
+ * columns are explicitly nulled to satisfy the B4 CHECK constraint.
+ */
+async function resolveTimeTriggerUpdate(
+  request: UpdateTriggerRequest,
+  automationEnabled: boolean,
+  currentTime: Date,
+): Promise<TimeTriggerUpdateResult> {
+  if (request.kind === "cron") {
+    const timezone = request.timezone ?? "UTC";
+    if (!isValidTimeZone(timezone)) {
+      return { kind: "bad_request", message: `Invalid timezone: ${timezone}` };
+    }
+    const next = await nextCronOccurrence(
+      request.cronExpression,
+      timezone,
+      currentTime,
+    );
+    if (!next) {
+      return {
+        kind: "bad_request",
+        message: `Invalid cron expression: ${request.cronExpression}`,
+      };
+    }
+    return {
+      kind: "ok",
+      fields: {
+        kind: "cron",
+        cronExpression: request.cronExpression,
+        atTime: null,
+        intervalSeconds: null,
+        timezone,
+        nextRunAt: automationEnabled ? next : null,
+      },
+    };
+  }
+
+  if (request.kind === "once") {
+    const timezone = request.timezone ?? "UTC";
+    if (!isValidTimeZone(timezone)) {
+      return { kind: "bad_request", message: `Invalid timezone: ${timezone}` };
+    }
+    const atTime = new Date(request.atTime);
+    if (Number.isNaN(atTime.getTime())) {
+      return {
+        kind: "bad_request",
+        message: `Invalid atTime: ${request.atTime}`,
+      };
+    }
+    if (atTime <= currentTime) {
+      return {
+        kind: "bad_request",
+        message: `Cannot update the trigger: time ${atTime.toISOString()} has already passed`,
+      };
+    }
+    return {
+      kind: "ok",
+      fields: {
+        kind: "once",
+        cronExpression: null,
+        atTime,
+        intervalSeconds: null,
+        timezone,
+        nextRunAt: atTime,
+      },
+    };
+  }
+
+  // loop
+  return {
+    kind: "ok",
+    fields: {
+      kind: "loop",
+      cronExpression: null,
+      atTime: null,
+      intervalSeconds: request.intervalSeconds,
+      timezone: "UTC",
+      nextRunAt: currentTime,
+    },
+  };
+}
+
+type UpdateTriggerResult =
+  | { readonly kind: "ok"; readonly trigger: AutomationTriggerRow }
+  | { readonly kind: "not_found" }
+  | { readonly kind: "bad_request"; readonly message: string };
+
+/**
+ * Update a time trigger's schedule in place. The trigger row identity and all
+ * runtime history (lastRunAt, lastRunId) are preserved; only the schedule
+ * config columns, nextRunAt, and consecutiveFailures are rewritten. Webhook
+ * triggers are rejected — their identity is the token, not a schedule.
+ *
+ * Switching kinds (e.g. cron → loop) is supported: the new kind's config
+ * columns are set and the old kind's config columns are nulled to satisfy the
+ * B4 CHECK constraint. nextRunAt follows the same creation rules (cron is
+ * unscheduled while the automation is disabled; once must be in the future;
+ * loop is due immediately). consecutiveFailures resets to zero.
+ */
+export const updateTrigger$ = command(
+  async (
+    { set },
+    args: {
+      readonly userId: string;
+      readonly orgId: string;
+      readonly id: string;
+      readonly body: UpdateTriggerRequest;
+    },
+    signal: AbortSignal,
+  ): Promise<UpdateTriggerResult> => {
+    const db = set(writeDb$);
+    const owned = await loadOwnedTrigger(db, args);
+    signal.throwIfAborted();
+    if (!owned) {
+      return { kind: "not_found" };
+    }
+    if (owned.trigger.kind === "webhook") {
+      return {
+        kind: "bad_request",
+        message:
+          "Webhook triggers cannot be updated through this path; use rotate-secret to change the signing secret",
+      };
+    }
+
+    const currentTime = nowDate();
+    const resolved = await resolveTimeTriggerUpdate(
+      args.body,
+      owned.automation.enabled,
+      currentTime,
+    );
+    signal.throwIfAborted();
+    if (resolved.kind === "bad_request") {
+      return resolved;
+    }
+
+    const { fields } = resolved;
+    const [trigger] = await db
+      .update(automationTriggers)
+      .set({
+        kind: fields.kind,
+        cronExpression: fields.cronExpression,
+        atTime: fields.atTime,
+        intervalSeconds: fields.intervalSeconds,
+        timezone: fields.timezone,
+        nextRunAt: fields.nextRunAt,
+        consecutiveFailures: 0,
+        updatedAt: currentTime,
+      })
+      .where(eq(automationTriggers.id, owned.trigger.id))
+      .returning();
+    signal.throwIfAborted();
+    if (!trigger) {
+      return { kind: "not_found" };
+    }
+
+    await publishChatThreadAutomationsChangedSafely(
+      args.userId,
+      owned.automation.chatThreadId,
+    );
+    signal.throwIfAborted();
+
+    return { kind: "ok", trigger };
   },
 );
 
