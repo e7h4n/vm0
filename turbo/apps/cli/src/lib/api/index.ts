@@ -180,6 +180,7 @@ export {
   removeAutomationTrigger,
   enableAutomationTrigger,
   disableAutomationTrigger,
+  updateAutomationTrigger,
   rotateAutomationTriggerSecret,
 } from "./domains/automations";
 

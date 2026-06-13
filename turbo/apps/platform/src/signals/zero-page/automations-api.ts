@@ -194,31 +194,30 @@ async function updateAutomation(
     [200],
   );
 
-  // Replace the time trigger when its config changed. The new trigger is
-  // added before the stale one is removed, so a failure in between never
-  // leaves the automation triggerless (a triggerless automation vanishes
-  // from the automation pages); the sweep then also collects duplicates left
-  // behind by an earlier interrupted replacement.
+  // Update the existing time trigger in place when its config changed.
+  // This preserves trigger row identity and runtime history, and never
+  // leaves duplicate time triggers around from an interrupted replacement.
   const timeTriggers = existing.triggers.filter(isTimeTrigger);
   const kept = timeTriggers.find((trigger) => {
     return triggerMatches(trigger, body);
   });
   if (!kept) {
-    await accept(
-      client(automationsByRefContract).addTrigger({
-        params: { ref: existing.id },
-        body: toTriggerRequest(body),
-      }),
-      [201],
-    );
-  }
-  for (const stale of timeTriggers) {
-    if (stale !== kept) {
+    const existingTimeTrigger = timeTriggers[0];
+    if (existingTimeTrigger) {
       await accept(
-        client(automationTriggersContract).remove({
-          params: { id: stale.id },
+        client(automationTriggersContract).update({
+          params: { id: existingTimeTrigger.id },
+          body: toTriggerRequest(body),
         }),
-        [204],
+        [200],
+      );
+    } else {
+      await accept(
+        client(automationsByRefContract).addTrigger({
+          params: { ref: existing.id },
+          body: toTriggerRequest(body),
+        }),
+        [201],
       );
     }
   }

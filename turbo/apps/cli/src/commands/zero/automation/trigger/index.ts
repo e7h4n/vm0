@@ -15,6 +15,7 @@ import {
   printWebhookSecret,
 } from "../trigger-display";
 import { addCommand } from "./add";
+import { updateCommand } from "./update";
 
 /**
  * `zero automation trigger` — manage the triggers of a unified automation.
@@ -154,6 +155,7 @@ export const triggerCommand = new Command()
   .name("trigger")
   .description("Manage an automation's triggers")
   .addCommand(addCommand)
+  .addCommand(updateCommand)
   .addCommand(listCommand)
   .addCommand(showCommand)
   .addCommand(rmCommand)

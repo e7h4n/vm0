@@ -123,4 +123,138 @@ describe("zero automation update command", () => {
     );
     expect(mockExit).toHaveBeenCalledWith(1);
   });
+
+  it("updates a single time trigger via --cron", async () => {
+    let capturedPatchBody: Record<string, unknown> | undefined;
+    let capturedTriggerId: string | undefined;
+
+    const cronTrigger = {
+      id: "22222222-2222-4222-8222-222222222222",
+      automationId: mockAutomation.id,
+      kind: "cron" as const,
+      enabled: true,
+      createdAt: "2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-01T00:00:00Z",
+      cronExpression: "30 8 * * 1-5",
+      timezone: "UTC",
+      nextRunAt: "2026-06-02T08:30:00Z",
+      lastRunAt: null,
+      consecutiveFailures: 0,
+    };
+
+    server.use(
+      http.get(
+        "http://localhost:3000/api/automations/:ref",
+        ({ params }) => {
+          expect(params.ref).toBe("alerts");
+          return HttpResponse.json({
+            ...mockAutomation,
+            triggers: [cronTrigger],
+          });
+        },
+      ),
+      http.patch(
+        "http://localhost:3000/api/automation-triggers/:id",
+        async ({ request, params }) => {
+          capturedTriggerId = params.id as string;
+          capturedPatchBody = (await request.json()) as Record<
+            string,
+            unknown
+          >;
+          return HttpResponse.json({ trigger: cronTrigger }, { status: 200 });
+        },
+      ),
+    );
+
+    await updateCommand.parseAsync([
+      "node",
+      "cli",
+      "alerts",
+      "--cron",
+      "30 8 * * 1-5",
+    ]);
+
+    expect(capturedTriggerId).toBe(cronTrigger.id);
+    expect(capturedPatchBody).toEqual({
+      kind: "cron",
+      cronExpression: "30 8 * * 1-5",
+    });
+
+    const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+    expect(logCalls).toContain(`Automation "${mockAutomation.name}" updated`);
+    expect(logCalls).toContain("30 8 * * 1-5");
+  });
+
+  it("rejects --cron when automation has 0 time triggers", async () => {
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json({
+          ...mockAutomation,
+          triggers: [],
+        });
+      }),
+    );
+
+    await expect(async () => {
+      await updateCommand.parseAsync([
+        "node",
+        "cli",
+        "alerts",
+        "--cron",
+        "0 9 * * *",
+      ]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("No time trigger to update"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("rejects --cron when automation has multiple time triggers", async () => {
+    const trigger1 = {
+      id: "22222222-2222-4222-8222-222222222222",
+      automationId: mockAutomation.id,
+      kind: "cron" as const,
+      enabled: true,
+      createdAt: "2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-01T00:00:00Z",
+      cronExpression: "0 9 * * *",
+      timezone: "UTC",
+      nextRunAt: "2026-06-02T09:00:00Z",
+      lastRunAt: null,
+      consecutiveFailures: 0,
+    };
+    const trigger2 = {
+      ...trigger1,
+      id: "33333333-3333-4333-8333-333333333333",
+      kind: "loop" as const,
+      intervalSeconds: 900,
+      cronExpression: undefined,
+    };
+
+    server.use(
+      http.get("http://localhost:3000/api/automations/:ref", () => {
+        return HttpResponse.json({
+          ...mockAutomation,
+          triggers: [trigger1, trigger2],
+        });
+      }),
+    );
+
+    await expect(async () => {
+      await updateCommand.parseAsync([
+        "node",
+        "cli",
+        "alerts",
+        "--cron",
+        "0 9 * * *",
+      ]);
+    }).rejects.toThrow("process.exit called");
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Multiple time triggers"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
 });

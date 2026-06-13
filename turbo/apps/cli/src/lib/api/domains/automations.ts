@@ -9,6 +9,7 @@ import type {
   AutomationResponse,
   AutomationTriggerResponse,
   CreateTriggerRequest,
+  UpdateTriggerRequest,
 } from "@vm0/api-contracts/contracts/automations";
 
 /**
@@ -276,6 +277,26 @@ export async function disableAutomationTrigger(
   }
 
   handleError(result, `Failed to disable trigger ${id}`);
+}
+
+/**
+ * Update a time trigger's schedule in place (cron/once/loop only).
+ * The trigger id, history, and enabled flag are preserved.
+ */
+export async function updateAutomationTrigger(
+  id: string,
+  body: UpdateTriggerRequest,
+): Promise<{ trigger: AutomationTriggerResponse }> {
+  const config = await getClientConfig();
+  const client = initClient(automationTriggersContract, config);
+
+  const result = await client.update({ params: { id }, body });
+
+  if (result.status === 200) {
+    return result.body;
+  }
+
+  handleError(result, `Failed to update trigger ${id}`);
 }
 
 /**

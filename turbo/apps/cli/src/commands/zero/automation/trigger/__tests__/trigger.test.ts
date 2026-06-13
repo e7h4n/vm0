@@ -420,4 +420,95 @@ describe("zero automation trigger commands", () => {
       expect(mockExit).toHaveBeenCalledWith(1);
     });
   });
+
+  describe("update", () => {
+    function captureUpdateTrigger(response: object) {
+      const captured: { id?: string; body?: Record<string, unknown> } = {};
+      server.use(
+        http.patch(
+          "http://localhost:3000/api/automation-triggers/:id",
+          async ({ request, params }) => {
+            captured.id = params.id as string;
+            captured.body = (await request.json()) as Record<string, unknown>;
+            return HttpResponse.json({ trigger: response }, { status: 200 });
+          },
+        ),
+      );
+      return captured;
+    }
+
+    it("updates a cron trigger with --expr", async () => {
+      const captured = captureUpdateTrigger(cronTrigger);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--expr",
+        "30 8 * * 1-5",
+      ]);
+
+      expect(captured.id).toBe(TRIGGER_ID);
+      expect(captured.body).toEqual({
+        kind: "cron",
+        cronExpression: "30 8 * * 1-5",
+      });
+
+      const logCalls = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(logCalls).toContain(`Trigger ${TRIGGER_ID} updated`);
+      expect(logCalls).toContain("0 9 * * *");
+    });
+
+    it("updates a loop trigger with --every", async () => {
+      const captured = captureUpdateTrigger(loopTrigger);
+
+      await triggerCommand.parseAsync([
+        "node",
+        "cli",
+        "update",
+        TRIGGER_ID,
+        "--every",
+        "30m",
+      ]);
+
+      expect(captured.body).toEqual({ kind: "loop", intervalSeconds: 1800 });
+    });
+
+    it("rejects ambiguous flags (--expr + --at)", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+          "--expr",
+          "0 9 * * *",
+          "--at",
+          "2026-06-10T09:00",
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Ambiguous schedule"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("rejects update with no schedule flags", async () => {
+      await expect(async () => {
+        await triggerCommand.parseAsync([
+          "node",
+          "cli",
+          "update",
+          TRIGGER_ID,
+        ]);
+      }).rejects.toThrow("process.exit called");
+
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining("Nothing to update"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
 });

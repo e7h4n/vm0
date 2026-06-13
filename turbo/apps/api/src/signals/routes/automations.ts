@@ -25,6 +25,7 @@ import {
   showAutomation$,
   showTrigger$,
   updateAutomation$,
+  updateTrigger$,
   type AutomationTriggerRow,
   type AutomationView,
 } from "../services/automations.service";
@@ -454,6 +455,43 @@ function makeSetTriggerEnabledInner(enabled: boolean) {
 const enableTriggerInner$ = makeSetTriggerEnabledInner(true);
 const disableTriggerInner$ = makeSetTriggerEnabledInner(false);
 
+const updateTriggerInner$ = command(
+  async ({ get, set }, signal: AbortSignal) => {
+    const auth = get(organizationAuthContext$);
+    const params = get(pathParamsOf(automationTriggersContract.update));
+    const bodyResult = await get(
+      bodyResultOf(automationTriggersContract.update),
+    );
+    signal.throwIfAborted();
+    if (!bodyResult.ok) {
+      return bodyResult.response;
+    }
+
+    const result = await set(
+      updateTrigger$,
+      {
+        userId: auth.userId,
+        orgId: auth.orgId,
+        id: params.id,
+        request: bodyResult.data,
+      },
+      signal,
+    );
+    signal.throwIfAborted();
+
+    if (result.kind === "not_found") {
+      return notFound(NOT_FOUND_MESSAGE);
+    }
+    if (result.kind === "bad_request") {
+      return badRequestMessage(result.message);
+    }
+    return {
+      status: 200 as const,
+      body: { trigger: triggerResponse(result.trigger) },
+    };
+  },
+);
+
 const rotateSecretInner$ = command(
   async ({ get, set }, signal: AbortSignal) => {
     if (!(await get(webhookTriggersEnabled$))) {
@@ -640,6 +678,17 @@ export const automationsRoutes: readonly RouteEntry[] = [
         requiredCapability: "automation:write",
       },
       disableTriggerInner$,
+    ),
+  },
+  {
+    route: automationTriggersContract.update,
+    handler: authRoute(
+      {
+        requireOrganization: true,
+        missingOrganizationStatus: 401,
+        requiredCapability: "automation:write",
+      },
+      updateTriggerInner$,
     ),
   },
   {
